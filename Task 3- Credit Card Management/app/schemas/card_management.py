@@ -110,7 +110,8 @@ class CardActivationResponse(BaseModel):
 
 class CardActionResponse(BaseModel):
     message: str
-    details: Optional[List[str]] = None
+    old_status: CCMCardStatus
+    new_status: CCMCardStatus
 
 # -----------------
 # Requests (Issue / Activate / etc.)
@@ -144,7 +145,7 @@ class CCMCardBlockRequest(BaseModel):
     reason: CCMFraudBlockReason = Field(..., description="Reason for blocking: LOST, STOLEN, FRAUD, TEMPORARY_BLOCK")
 
 class CCMCardUnblockRequest(BaseModel):
-    reason: str = Field("CARD_FOUND", description="Reason for unblocking (e.g., Card found)")
+    reason: Optional[str] = Field("CARD_FOUND", description="Reason for unblocking (e.g., Card found)")
     
     @field_validator("reason", mode="before")
     @classmethod
@@ -171,8 +172,8 @@ class CCMCardTerminateRequest(BaseModel):
         return v
 
 class CCMCardRenewRequest(BaseModel):
-    reissue_type: CCMReissueType = Field(..., description="Type of renewal card")
-    delivery_address: str = Field(..., min_length=5)
+    reissue_type: CCMReissueType = Field(..., description="Type of renewal card: PHYSICAL or VIRTUAL")
+    delivery_address: str = Field(..., min_length=5, description="Shipping destination for the renewed card")
 
 # -----------------
 # Transactions

@@ -216,6 +216,7 @@ class CardManagementService:
                 detail=f"Card is already blocked. Current status: {card.status.value}."
             )
 
+        old_status = card.status
         card.status = CCMCardStatus.BLOCKED_USER if actor == ActorType.USER else CCMCardStatus.BLOCKED_FRAUD
         card.blocked_reason = request.reason
         card.blocked_by_actor = actor
@@ -226,12 +227,9 @@ class CardManagementService:
         db.commit()
 
         return {
-            "message": "⚠ Card Blocked",
-            "details": [
-                "Transactions are now disabled.",
-                "You can unblock anytime using the unblock command.",
-                "Use generic OTP API for unblocking."
-            ]
+            "message": "Card Blocked",
+            "old_status": old_status,
+            "new_status": card.status
         }
 
     # -------------------------------------------------
@@ -260,13 +258,9 @@ class CardManagementService:
         unblock_id = uuid.uuid4()
 
         return {
-            "message": "🔓 Authenticate with OTP to unblock the card",
-            "detail": (
-                f"Use unblock_id as linkage_id in the generic OTP endpoints.\n"
-                f"Step 1: POST /auth/otp/generate with purpose=UNBLOCK and linkage_id={unblock_id}\n"
-                f"Step 2: POST /auth/otp/verify with the OTP and linkage_id={unblock_id}\n"
-                f"Step 3: POST /cards/{card_id}?command=unblock"
-            ),
+            "message": "Unblock process initiated. Authenticate with OTP.",
+            "old_status": card.status,
+            "new_status": card.status,  # Status hasn't changed yet
             "unblock_id": str(unblock_id)
         }
 
@@ -305,6 +299,7 @@ class CardManagementService:
                        "Please use the unblock_otp command first to initiate the process."
             )
 
+        old_status = card.status
         card.status = CCMCardStatus.ACTIVE
         card.blocked_reason = None
         card.blocked_by_actor = None
@@ -316,11 +311,9 @@ class CardManagementService:
         db.commit()
 
         return {
-            "message": "✔ Card Active Again",
-            "details": [
-                "You can now use your card.",
-                "All transactions are re-enabled."
-            ]
+            "message": "Card Active Again",
+            "old_status": old_status,
+            "new_status": card.status
         }
 
     # -------------------------------------------------
@@ -356,19 +349,16 @@ class CardManagementService:
             is_virtual=(request.reissue_type == CCMReissueType.VIRTUAL)
         )
         db.add(new_card)
+        old_status = card.status
         card.status = CCMCardStatus.REPLACED
         db.commit()
         db.refresh(new_card)
 
         return {
-            "message": "✔ Replacement Card Ordered",
-            "details": [
-                f"Old Card ({old_card_id}): Blocked",
-                f"New Card ({new_card.id}): Issued",
-                f"Last 4 Digits: **** {new_card_number[-4:]}",
-                f"Expiry: {new_expiry}",
-                "Delivery ETA: 5 days"
-            ]
+            "message": "Replacement Card Ordered",
+            "old_status": old_status,
+            "new_status": card.status,
+            "card_id": str(new_card.id)
         }
 
     # -------------------------------------------------
@@ -396,6 +386,7 @@ class CardManagementService:
                        "Please clear the balance first."
             )
 
+        old_status = card.status
         card.status = CCMCardStatus.TERMINATED
         
         if card.credit_account:
@@ -404,12 +395,9 @@ class CardManagementService:
         db.commit()
 
         return {
-            "message": "🔒 Card Closed Successfully",
-            "details": [
-                f"Outstanding Balance: ₹{outstanding}",
-                f"Reason: {request.reason}",
-                "This action is permanent and cannot be undone."
-            ]
+            "message": "Card Closed Successfully",
+            "old_status": old_status,
+            "new_status": card.status
         }
 
     # -------------------------------------------------

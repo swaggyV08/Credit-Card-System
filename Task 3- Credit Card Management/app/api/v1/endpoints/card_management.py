@@ -108,7 +108,10 @@ async def activate_card_dispatcher(
 @router.post("/{card_id}", response_model=CardActionResponse)
 async def card_lifecycle_dispatcher(
     card_id: uuid.UUID,
-    data: dict = Body(..., example={ "reason": "LOST" }),
+    data: Union[
+        CCMCardBlockRequest, CCMCardUnblockRequest, CCMCardReplaceRequest, 
+        CCMCardTerminateRequest, CCMCardRenewRequest
+    ] = Body(..., example={ "reason": "LOST" }),
     command: str = Query(..., description="Action to perform on the card: block, unblock_otp, unblock, replace, terminate, renew"),
     db: Session = Depends(get_db)
 ):
@@ -129,29 +132,33 @@ async def card_lifecycle_dispatcher(
     - `renew`: `{ "reissue_type": "...", "delivery_address": "..." }`
     """
     command = command.lower().strip()
+    # Convert Pydantic object back to dict for manual command-based re-validation
+    # This avoids polymorphic ambiguity in the Union.
+    raw_data = data.model_dump() if hasattr(data, "model_dump") else data
+    
     try:
         if command == CCMCommand.BLOCK.value.lower():
-            validated_data = CCMCardBlockRequest.model_validate(data)
+            validated_data = CCMCardBlockRequest.model_validate(raw_data)
             return CardManagementService.block_card(db, card_id, validated_data)
 
         elif command == CCMCommand.UNBLOCK_OTP.value.lower():
-            validated_data = CCMCardUnblockRequest.model_validate(data)
+            validated_data = CCMCardUnblockRequest.model_validate(raw_data)
             return CardManagementService.initiate_unblock(db, card_id, validated_data)
 
         elif command == CCMCommand.UNBLOCK.value.lower():
-            validated_data = CCMCardUnblockRequest.model_validate(data)
+            validated_data = CCMCardUnblockRequest.model_validate(raw_data)
             return CardManagementService.confirm_unblock(db, card_id, validated_data)
 
         elif command == CCMCommand.REPLACE.value.lower():
-            validated_data = CCMCardReplaceRequest.model_validate(data)
+            validated_data = CCMCardReplaceRequest.model_validate(raw_data)
             return CardManagementService.replace_card(db, card_id, validated_data)
 
         elif command == CCMCommand.TERMINATE.value.lower():
-            validated_data = CCMCardTerminateRequest.model_validate(data)
+            validated_data = CCMCardTerminateRequest.model_validate(raw_data)
             return CardManagementService.terminate_card(db, card_id, validated_data)
 
         elif command == CCMCommand.RENEW.value.lower():
-            validated_data = CCMCardRenewRequest.model_validate(data)
+            validated_data = CCMCardRenewRequest.model_validate(raw_data)
             return CardManagementService.renew_card(db, card_id, validated_data)
 
         else:

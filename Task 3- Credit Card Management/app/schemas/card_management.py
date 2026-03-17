@@ -150,13 +150,6 @@ class CCMCardBlockRequest(BaseModel):
 
 class CCMCardUnblockRequest(BaseModel):
     reason: Optional[str] = Field("CARD_FOUND", description="Reason for unblocking (e.g., Card found)")
-    
-    @field_validator("reason", mode="before")
-    @classmethod
-    def lowercase_reason(cls, v):
-        if isinstance(v, str):
-            return v.lower().strip()
-        return v
 
 class CCMCardReplaceRequest(BaseModel):
     reason: CCMReissueReason = Field(..., description="DAMAGED, LOST, UPGRADE")
@@ -167,13 +160,6 @@ class CCMCardReplaceRequest(BaseModel):
 
 class CCMCardTerminateRequest(BaseModel):
     reason: str = Field(..., min_length=5, description="Reason for closing (e.g., No longer needed, Switching bank)")
-
-    @field_validator("reason", mode="before")
-    @classmethod
-    def lowercase_reason(cls, v):
-        if isinstance(v, str):
-            return v.lower().strip()
-        return v
 
 class CCMCardRenewRequest(BaseModel):
     reissue_type: CCMReissueType = Field(..., description="Type of renewal card: PHYSICAL or VIRTUAL")

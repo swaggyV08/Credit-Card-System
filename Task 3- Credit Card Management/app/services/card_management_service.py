@@ -182,6 +182,7 @@ class CardManagementService:
             )
 
         # Activate card and set PIN
+        old_status = card.status
         card.status = CCMCardStatus.ACTIVE
         card.activated_at = datetime.now(timezone.utc)
         card.pin_hash = hash_pin(request.pin)

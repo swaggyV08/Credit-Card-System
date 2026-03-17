@@ -94,9 +94,12 @@ class VerifyPasswordResetRequest(BaseModel):
 from app.models.customer import OTPPurpose
 import uuid
 
-class OTPActionRequest(BaseModel):
+class OTPGenerateRequest(BaseModel):
     purpose: OTPPurpose = Field(..., description="The context for which the OTP is needed (e.g., LOGIN, ACTIVATION)")
-    otp: Optional[str] = Field(None, description="Not accepted for generate command. Mandatory for verify command.")
+
+class OTPVerifyRequest(BaseModel):
+    purpose: OTPPurpose = Field(..., description="The context for which the OTP is needed (e.g., LOGIN, ACTIVATION)")
+    otp: str = Field(..., min_length=4, max_length=6, description="The OTP code received by the user")
 
 
 # RESET PASSWORD (AFTER LOGIN)

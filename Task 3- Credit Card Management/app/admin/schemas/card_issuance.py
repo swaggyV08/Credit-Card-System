@@ -30,7 +30,7 @@ class CreditCardApplicationCreate(BaseModel):
     credit_product_id: UUID
     card_product_id: UUID
     employment_status: str
-    declared_income: Optional[Decimal] = None
+    declared_income: Optional[condecimal(max_digits=13, decimal_places=3)] = Field(None, json_schema_extra={"example": "0000000000.000"})
 
     @field_validator("declared_income")
     @classmethod
@@ -65,7 +65,7 @@ class CreditCardApplicationResponse(BaseModel):
     current_stage: ApplicationStage
     
     employment_status: Optional[str]
-    declared_income: Optional[float]
+    declared_income: Optional[condecimal(max_digits=13, decimal_places=3)] = Field(None, json_schema_extra={"example": "0000000000.000"})
     bureau_score: Optional[int] = None
     risk_band: Optional[str] = None
     
@@ -95,8 +95,8 @@ class AdminKYCReviewRequest(BaseModel):
     notes: Optional[str] = None
 
 class CreditAccountManualConfig(BaseModel):
-    credit_limit: Decimal = Field(..., gt=0)
-    cash_advance_limit: Decimal = Field(..., ge=0)
+    credit_limit: condecimal(max_digits=13, decimal_places=3) = Field(..., gt=0, json_schema_extra={"example": "0000000000.000"})
+    cash_advance_limit: condecimal(max_digits=13, decimal_places=3) = Field(..., ge=0, json_schema_extra={"example": "0000000000.000"})
     billing_cycle_id: str = Field(
         ..., 
         pattern=r'^CYCLE_\d{2}$',
@@ -113,7 +113,7 @@ class CreditAccountManualConfig(BaseModel):
     )
     
     overlimit_allowed: bool = False
-    overlimit_percentage: Decimal = Field(Decimal("0.0"), ge=0, le=100)
+    overlimit_percentage: condecimal(max_digits=13, decimal_places=3) = Field(Decimal("0.0"), ge=0, le=100, json_schema_extra={"example": "0000000000.000"})
 
     autopay_enabled: bool = False
     autopay_type: Optional[AutoPayType] = None
@@ -124,23 +124,38 @@ class CreditAccountManualConfig(BaseModel):
         return validate_currency_10_3(v)
 
 class CreditSummary(BaseModel):
-    total_credit_limit: Decimal
-    available_credit: Decimal
-    cash_advance_limit: Decimal
-    used_credit: Decimal
+    total_credit_limit: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    available_credit: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    cash_advance_limit: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    used_credit: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+
+    @field_validator("total_credit_limit", "available_credit", "cash_advance_limit", "used_credit")
+    @classmethod
+    def validate_summary_nums(cls, v):
+        return validate_currency_10_3(v)
 
 class StatementSummary(BaseModel):
-    opening_balance: Decimal
-    payment_credits: Decimal
-    purchase_debits: Decimal
-    finance_charges: Decimal
-    total_dues: Decimal
+    opening_balance: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    payment_credits: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    purchase_debits: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    finance_charges: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    total_dues: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+
+    @field_validator("opening_balance", "payment_credits", "purchase_debits", "finance_charges", "total_dues")
+    @classmethod
+    def validate_stmt_nums(cls, v):
+        return validate_currency_10_3(v)
 
 class BillingDetails(BaseModel):
     billing_cycle_day: int
     statement_date: date
     payment_due_date: date
-    minimum_payment_due: Decimal
+    minimum_payment_due: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+
+    @field_validator("minimum_payment_due")
+    @classmethod
+    def validate_min_due(cls, v):
+        return validate_currency_10_3(v)
     statement_summary: StatementSummary
     credit_summary: CreditSummary
 
@@ -152,16 +167,21 @@ class CreditAccountResponse(BaseModel):
     card_product_id: UUID
     
     account_currency: str
-    credit_limit: Decimal
-    available_limit: Decimal
-    cash_advance_limit: Decimal
-    outstanding_amount: Decimal
+    credit_limit: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    available_limit: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    cash_advance_limit: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    outstanding_amount: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
     
     billing_cycle_id: str
     internal_risk_rating: Optional[InternalRiskRating]
     aml_risk_category: Optional[AMLRiskCategory]
     overlimit_allowed: bool
-    overlimit_percentage: Optional[Decimal]
+    overlimit_percentage: Optional[condecimal(max_digits=13, decimal_places=3)] = Field(None, json_schema_extra={"example": "0000000000.000"})
+
+    @field_validator("credit_limit", "available_limit", "cash_advance_limit", "outstanding_amount", "overlimit_percentage")
+    @classmethod
+    def validate_resp_nums(cls, v):
+        return validate_currency_10_3(v)
     
     account_status: AccountStatus
     opened_at: datetime

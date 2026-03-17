@@ -1,5 +1,5 @@
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, Field, field_validator, ConfigDict, condecimal
 from uuid import UUID
 from datetime import datetime, date
 from decimal import Decimal
@@ -20,17 +20,17 @@ def validate_currency_10_3(v: Decimal) -> Decimal:
 class ApplicationCreateRequest(BaseModel):
     credit_product_code: str = Field(..., description="Unique code of the credit product (Case-insensitive)")
     application_date: date = Field(default_factory=date.today, description="Date of application submission (Defaults to today)")
-    declared_income: Decimal = Field(..., ge=1, description="Total annual income declared by the applicant")
+    declared_income: condecimal(max_digits=13, decimal_places=3) = Field(..., ge=1, description="Total annual income declared by the applicant", json_schema_extra={"example": "0000000000.000"})
     income_frequency: str = Field("ANNUALLY", description="Frequency of income (e.g., MONTHLY, ANNUALLY)")
     employment_status: str = Field(..., description="Current employment type (e.g., SALARIED, SELF_EMPLOYED)")
     occupation: Optional[str] = Field(None, description="Detailed occupation or job profile")
     employer_name: Optional[str] = Field(None, description="Name of the current company")
     work_experience_years: Optional[int] = Field(None, ge=0, description="Total years of professional experience")
     
-    existing_emis_monthly: Optional[Decimal] = Field(Decimal("0.0"), ge=0)
+    existing_emis_monthly: Optional[condecimal(max_digits=13, decimal_places=3)] = Field(Decimal("0.0"), ge=0, json_schema_extra={"example": "0000000000.000"})
     has_existing_credit_card: bool = False
     existing_cards_count: Optional[int] = Field(0, ge=0)
-    approx_credit_limit_total: Optional[Decimal] = Field(Decimal("0.0"), ge=0)
+    approx_credit_limit_total: Optional[condecimal(max_digits=13, decimal_places=3)] = Field(Decimal("0.0"), ge=0, json_schema_extra={"example": "0000000000.000"})
 
     @field_validator("declared_income", "existing_emis_monthly", "approx_credit_limit_total")
     @classmethod
@@ -107,7 +107,7 @@ class RiskAssessmentResponse(BaseModel):
     id: UUID
     application_id: UUID
     risk_band: str
-    confidence_score: Optional[float] = None
+    confidence_score: Optional[condecimal(max_digits=13, decimal_places=3)] = Field(None, json_schema_extra={"example": "0000000000.000"})
     assessment_explanation: Optional[str] = None
     assessed_at: datetime
     model_config = ConfigDict(from_attributes=True)

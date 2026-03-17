@@ -1,11 +1,22 @@
-from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict
-from typing import Optional
-from datetime import date
-from fastapi import HTTPException
+from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict, condecimal
+from decimal import Decimal
 
 
 
 # COMMON SCHEMAS
+def validate_currency_10_3(v: Decimal) -> Decimal:
+    if v is None: return v
+    if v < 0:
+        raise ValueError("Value cannot be negative")
+    if v >= Decimal("10000000000"):
+        raise ValueError("Value must be less than 10 digits before decimal")
+    str_v = str(v)
+    if "." in str_v:
+        decimals = len(str_v.split(".")[1])
+        if decimals > 3:
+            raise ValueError("only upto 4 digits after decimal")
+    return v
+
 class ContactSchema(BaseModel):
     country_code: str = Field(..., json_schema_extra={"example": "+91"})
     phone_number: str = Field(..., json_schema_extra={"example": "9876543210"})
@@ -243,16 +254,26 @@ class EmploymentDetailsSchema(BaseModel):
     employment_type: EmploymentType
     organisation_name: Optional[str] = None
     designation: Optional[str] = None
-    annual_income: Optional[float] = None
+    annual_income: Optional[condecimal(max_digits=13, decimal_places=3)] = Field(None, json_schema_extra={"example": "0000000000.000"})
+
+    @field_validator("annual_income")
+    @classmethod
+    def validate_inc(cls, v):
+        return validate_currency_10_3(v)
     
     model_config = ConfigDict(from_attributes=True)
     
 class FinancialDetailsSchema(BaseModel):
-    net_annual_income: float
-    monthly_income: float
-    other_income: Optional[float] = 0
-    housing_payment: Optional[float] = 0
-    other_obligations: Optional[float] = 0
+    net_annual_income: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    monthly_income: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    other_income: Optional[condecimal(max_digits=13, decimal_places=3)] = Field(Decimal("0.0"), json_schema_extra={"example": "0000000000.000"})
+    housing_payment: Optional[condecimal(max_digits=13, decimal_places=3)] = Field(Decimal("0.0"), json_schema_extra={"example": "0000000000.000"})
+    other_obligations: Optional[condecimal(max_digits=13, decimal_places=3)] = Field(Decimal("0.0"), json_schema_extra={"example": "0000000000.000"})
+
+    @field_validator("net_annual_income", "monthly_income", "other_income", "housing_payment", "other_obligations")
+    @classmethod
+    def validate_fin_nums(cls, v):
+        return validate_currency_10_3(v)
     
     model_config = ConfigDict(from_attributes=True)
     

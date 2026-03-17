@@ -1,5 +1,5 @@
 from typing import List, Optional, Any
-from pydantic import BaseModel, Field, condecimal, ConfigDict, field_validator
+from pydantic import BaseModel, Field, condecimal, ConfigDict, field_validator, model_validator
 from uuid import UUID
 from datetime import datetime
 from decimal import Decimal
@@ -138,9 +138,22 @@ class CreditProductCreateResponse(BaseModel):
     product_name: str
 
 class DateInput(BaseModel):
-    day: int
-    month: int
-    year: int
+    day: int = Field(..., ge=1, le=31)
+    month: int = Field(..., ge=1, le=12)
+    year: int = Field(..., ge=2024)
+
+    @model_validator(mode='after')
+    def validate_future_date(self) -> 'DateInput':
+        from datetime import date
+        try:
+            input_date = date(self.year, self.month, self.day)
+            if input_date < date.today():
+                raise ValueError("The provided date must be today or in the future.")
+        except ValueError as e:
+            if "provided date" in str(e):
+                raise
+            raise ValueError("Invalid date provided.")
+        return self
 
 class CreditProductApprovalRequest(BaseModel):
     effective_to: Optional[DateInput] = None

@@ -1,7 +1,8 @@
 from typing import List, Optional, Any, Dict
-from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator, condecimal
 from uuid import UUID
 from datetime import datetime
+from decimal import Decimal
 from app.models.enums import (
     CardNetwork, CardFormFactor, CardVariant, BillingCycleType,
     StatementGenerationMode, RewardAccrualType, RewardExpiryPolicy,
@@ -45,7 +46,7 @@ class CardTransactionControlsCreate(BaseModel):
     atm_withdrawal_allowed: bool = False
     contactless_enabled: bool = True
     international_txn_allowed: bool = False
-    international_txn_limit_cap: Optional[float] = None
+    international_txn_limit_cap: Optional[condecimal(max_digits=13, decimal_places=3)] = Field(None, json_schema_extra={"example": "0000000000.000"})
     international_cash_allowed: bool = False
     tokenization_supported: bool = True
     recurring_txn_allowed: bool = True
@@ -54,23 +55,23 @@ class CardFxConfigurationCreate(BaseModel):
     supported_currencies: Optional[List[str]] = None
     fx_rate_source: str = "VISA"
     fx_conversion_method: str = "MARKET_RATE"
-    foreign_markup_fee_pct: float = 3.5
+    foreign_markup_fee_pct: condecimal(max_digits=13, decimal_places=3) = Field(Decimal("3.5"), json_schema_extra={"example": "0000000000.000"})
     cross_border_fee_applicable: bool = True
-    cross_border_fee_rate: float = 1.0
+    cross_border_fee_rate: condecimal(max_digits=13, decimal_places=3) = Field(Decimal("1.0"), json_schema_extra={"example": "0000000000.000"})
 
 class CardUsageLimitsCreate(BaseModel):
-    cash_advance_limit_pct: float = Field(..., ge=0, le=100)
-    domestic_txn_daily_cap: float = Field(..., ge=0)
-    contactless_txn_cap: float = Field(..., ge=0)
+    cash_advance_limit_pct: condecimal(max_digits=13, decimal_places=3) = Field(..., ge=0, le=100, json_schema_extra={"example": "0000000000.000"})
+    domestic_txn_daily_cap: condecimal(max_digits=13, decimal_places=3) = Field(..., ge=0, json_schema_extra={"example": "0000000000.000"})
+    contactless_txn_cap: condecimal(max_digits=13, decimal_places=3) = Field(..., ge=0, json_schema_extra={"example": "0000000000.000"})
     max_txn_per_day: int = Field(..., ge=1)
 
 class CardRewardsConfigurationCreate(BaseModel):
     reward_program_code: str
     reward_accrual_type: RewardAccrualType = RewardAccrualType.POINTS
-    reward_earn_rate: float = Field(..., ge=0)
+    reward_earn_rate: condecimal(max_digits=13, decimal_places=3) = Field(..., ge=0, json_schema_extra={"example": "0000000000.000"})
     reward_expiry_policy: RewardExpiryPolicy = RewardExpiryPolicy.TWO_YEARS
     reward_redemption_modes: List[str]
-    merchant_category_bonus: Optional[Dict[str, float]] = None
+    merchant_category_bonus: Optional[Dict[str, condecimal(max_digits=13, decimal_places=3)]] = None
 
     @field_validator("reward_program_code", mode="before")
     @classmethod

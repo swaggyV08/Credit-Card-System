@@ -147,9 +147,17 @@ class CCMCardActivationRequest(BaseModel):
 
 class CCMCardBlockRequest(BaseModel):
     reason: CCMFraudBlockReason = Field(..., description="Reason for blocking: LOST, STOLEN, FRAUD, TEMPORARY_BLOCK")
+    reissue_type: Optional[CCMReissueType] = Field(None, description="Only for replace/renew")
+    delivery_address: Optional[str] = Field(None, alias="Delivery Address")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 class CCMCardUnblockRequest(BaseModel):
     reason: Optional[str] = Field("CARD_FOUND", description="Reason for unblocking (e.g., Card found)")
+    reissue_type: Optional[CCMReissueType] = Field(None, description="Only for replace/renew")
+    delivery_address: Optional[str] = Field(None, alias="Delivery Address")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 class CCMCardReplaceRequest(BaseModel):
     reason: CCMReissueReason = Field(..., description="DAMAGED, LOST, UPGRADE")
@@ -160,10 +168,16 @@ class CCMCardReplaceRequest(BaseModel):
 
 class CCMCardTerminateRequest(BaseModel):
     reason: str = Field(..., min_length=5, description="Reason for closing (e.g., No longer needed, Switching bank)")
+    reissue_type: Optional[CCMReissueType] = Field(None, description="Only for replace/renew")
+    delivery_address: Optional[str] = Field(None, alias="Delivery Address")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 class CCMCardRenewRequest(BaseModel):
     reissue_type: CCMReissueType = Field(..., description="Type of renewal card: PHYSICAL or VIRTUAL")
-    delivery_address: str = Field(..., min_length=5, description="Shipping destination for the renewed card")
+    delivery_address: str = Field(..., min_length=5, alias="Delivery Address")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 # -----------------
 # Transactions

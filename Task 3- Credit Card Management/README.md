@@ -1,99 +1,109 @@
-# Credit Card Management System
+# ZBANQUe Credit Card Management System
 
-A robust, enterprise-grade backend for managing the complete lifecycle of credit cards, credit accounts, and related backend workflows.
+A robust, enterprise-grade backend for managing the complete lifecycle of credit cards, credit accounts, and retail banking workflows. This system enforces strict banking standards, real-time risk assessment, and multi-stage lifecycle management.
 
 ## Table of Contents
-1. [System Overview](#system-overview)
-2. [Logical Architecture & Flow](#logical-architecture--flow)
-3. [Key Modules & Endpoints](#key-modules--endpoints)
-    - [Application & Review Workflow](#application--review-workflow)
-    - [Credit Account Management](#credit-account-management)
-    - [Card Servicing & Lifecycle Operations](#card-servicing--lifecycle-operations)
-4. [Deployment & Running Locally](#deployment--running-locally)
+1. [Workflow Overview](#workflow-overview)
+2. [Detailed Component Flows](#detailed-component-flows)
+    - [1. Administrative Product Setup](#1-administrative-product-setup)
+    - [2. Customer Onboarding (CIF & KYC)](#2-customer-onboarding-cif--kyc)
+    - [3. Application & Underwriting](#3-application--underwriting)
+    - [4. Issuance & Activation](#4-issuance--activation)
+    - [5. Account & Card Management](#5-account--card-management)
+3. [API Master Reference](#api-master-reference)
+4. [Tech Stack & Design Patterns](#tech-stack--design-patterns)
+5. [Setup & Deployment](#setup--deployment)
 
 ---
 
-## System Overview
-This repository contains a FastAPI-based backend capable of simulating banking workflows. It tracks and structures entities from physical **Card Products**, mapping them to larger abstracted **Credit Accounts**, all the way up to processing **User Applications** through Maker/Checker style validation.
+## Workflow Overview
 
-## Logical Architecture & Flow
-The entire process maps a typical customer journey in retail banking:
+The system follows a strict linear progression to ensure compliance and risk mitigation:
 
-1. **Credit Product Registration** (Admin Task)
-   - Admins define underlying Credit Policies, Interest Frameworks, and GL Accounting Mappings. (`/admin/credit-products/`)
-
-2. **Card Product Definition** (Admin Task)
-   - Admins define a physical or virtual variant containing explicit Transaction Controls, Usage Limits, Rewards Config, etc., linked directly to an overarching Credit Product. (`/admin/card-products/`)
-
-3. **Customer Application** 
-   - Customers apply for a specific Card Product by submitting their demographic and financial state.
-   - This submission triggers KYC validations and Underwriting processes. (`/applications/`)
-
-4. **Underwriting & Review** (Admin Task)
-   - Once the application's details are stored, it is automatically scored, but final approval is routed through the Risk & Compliance endpoints for approval. (`/admin/applications/{id}/review`)
-   - Approval automatically spins up a **Credit Account** possessing the prescribed credit limits and billing cycle details.
-
-5. **Card Issuance** 
-   - A newly established Credit Account warrants issuing a physical/virtual card to the user.
-   - Endpoint: `POST /card_product/{credit_account_id}/card`
-
-6. **Card Activation (OTP + PIN Flow)**
-   - The user receives their card and activates it via a secure mechanism involving OTPs and custom PIN setup.
-   - **Generate OTP**: `POST /auth/otp/generate`
-   - **Verify OTP**: `POST /auth/otp/verify`
-   - **Activate**: `POST /cards/{card_id}/activate?command=activate` (requires PIN and previous activation_id)
-
-7. **Card Lifecycle Actions** 
-   - Users/Admins can manage the active status of the card through the master Dispatcher endpoint `POST /cards/{card_id}?command={action}`.
-   - Actions include: `block`, `unblock_otp`, `unblock`, `replace`, `terminate`, `renew`.
-   - Modifying a card's state synchronously updates the associated Credit Account statuses and validates internal policies.
+```mermaid
+graph TD
+    A[Admin: Credit Product] --> B[Admin: Card Product]
+    B --> C[User: Registration & Login]
+    C --> D[User: CIF Completion]
+    D --> E[User: KYC Verification]
+    E --> F[User: Card Application]
+    F --> G[Admin: Eligibility Evaluation]
+    G --> H[Admin: Account Provisioning]
+    H --> I[Admin: Card Issuance]
+    I --> J[User: Activation & PIN Set]
+    J --> K[Ongoing: Lifecycle Mgmt]
+```
 
 ---
 
-## Key Modules & Endpoints
+## Detailed Component Flows
 
-### Application & Review Workflow
-* Handles both user submissions and risk management administration.
+### 1. Administrative Product Setup
+Before any user can apply, admins must define the product catalog:
+- **Credit Product**: Defines the financial "soul" of the card—Interest rates (APR), Eligibility rules (min score/income), and GL accounting mappings.
+- **Card Product**: Defines the physical/virtual representation—Branding, Network (Visa/Mastercard), Rewards, and Transaction Controls (Dom/Intl).
 
-| Route | Method | Description |
-| :--- | :--- | :--- |
-| `/applications/` | `POST` | User submits demographics to begin the issuance journey. |
-| `/admin/applications/{id}/evaluate` | `POST` | Pulls simulated Credit Bureau records & computes fraud probability. |
-| `/admin/applications/{id}/review` | `POST` | Approves/Rejects the application. If approved, establishes a `CreditAccount`. |
+### 2. Customer Onboarding (CIF & KYC)
+- **CIF (Customer Information File)**: A 5-stage profile completion (Personal, Residential, Employment, Financial, FATCA).
+- **KYC (Know Your Customer)**: Security-first document upload with integrated OTP verification to bind the user's identity to their digital profile.
 
-### Credit Account Management
-* Represents the actual underlying line of credit. Modifying limits or freezing is done at this layer.
+### 3. Application & Underwriting
+- **Real-time Assessment**: Upon submission, the system runs three engines:
+    - **Bureau Engine**: Simulates credit history and score checking.
+    - **Fraud Engine**: Detects anomalies in income, location, and application velocity.
+    - **Risk Engine**: Computes risk bands and confidence scores.
+- **Underwriting**: Admins review these assessments to either move to account configuration or reject the application.
 
-| Route | Method | Description |
-| :--- | :--- | :--- |
-| `/admin/credit-accounts/{id}/limits` | `PUT` | Update the `new_credit_limit`, adjusting the total exposure available. |
-| `/admin/credit-accounts/{id}/status` | `PUT` | Suspend or close an entire account (`reason_code`, `status`). |
-| `/admin/credit-accounts/{id}/freeze` | `POST` | Apply a temporary hold universally across all issued cards linked here. |
-| `/admin/credit-accounts/{id}/interest-config` | `PUT` | Change dynamic APR properties (Purchase APR, Cash APR, Penalty APR). |
-| `/admin/credit-accounts/{id}/adjustments` | `POST` | Inject manual ledger adjustments (fee waivers, chargebacks). |
+### 4. Issuance & Activation
+- **Provisioning**: Approved applications are converted into `CreditAccounts` with configured limits and billing cycles.
+- **Secure Activation**: Uses a "Linkage-Protected" OTP flow. 
+    1. Generate an `activation_id`.
+    2. Request OTP using `activation_id` as the `linkage_id`.
+    3. Verify OTP.
+    4. Provide the secret PIN to activate the physical/virtual card.
 
-### Card Servicing & Lifecycle Operations
-* The management of physical/virtual PANs tied to a `CreditAccount`. These actions modify direct card capabilities (International/Domestic/E-commerce toggles).
-
-| Route | Method | Description |
-| :--- | :--- | :--- |
-| `/card_product/{credit_account_id}/card` | `POST` | **[Issue Card]** Instantiate a new card tied to an account. |
-| `/cards/{card_id}/activate` | `POST` | **[Activate]** Requires query parametar `command=activate`, plus OTP ID and PIN. |
-| `/cards/{card_id}` | `POST` | **[Lifecycle Dispatcher]** Execute `block`, `unblock`, `terminate`, `renew`, `replace` depending on the `?command=` query param. |
-| `/cards/{card_id}/transactions` | `GET` | View a ledger snippet of recent cleared and pending card charges. |
-
-> **Note**: This application heavily enforces case-sensitive validation internally but utilizes automatic `lower()` coercions for most Identity strings (like `merchant_name`, schema IDs, `_code` parameters) via strong Pydantic `field_validators`.
+### 5. Account & Card Management
+- **Card Actions**: Granular control via a master dispatcher (`block`, `unblock`, `replace`, `renew`, `terminate`).
+- **Account Controls**: Admins can adjust limits, freeze accounts for delinquency, or update APRs dynamically.
 
 ---
 
-## Deployment & Running Locally
+## API Master Reference
 
-1. Install dependencies (e.g., via `pip` or standard Virtual Environment).
-2. Configure environment defaults for Database integration (typically via `sqlite` out-of-the-box or standard PostgreSQL config).
-3. Use `uvicorn` to mount the FastAPI runtime:
+### Core Workflows
+| Route | Method | Purpose |
+| :--- | :--- | :--- |
+| `/auth/registrations` | `POST` | Create pending user registration |
+| `/customers/cif/...` | `PUT` | Series of endpoints to complete CIF profile |
+| `/customers/kyc` | `POST` | Upload & Verify identity documents |
+| `/applications/` | `POST` | **[Apply]** Run eligibility engines and submit |
+| `/card_product/{id}/card` | `POST` | **[Issue]** Create a card for a credit account |
+| `/cards/{id}/activate` | `POST` | **[Activate]** 2-stage verification & PIN set |
 
+### Administrative Controls
+| Category | Endpoint | Description |
+| :--- | :--- | :--- |
+| **Products** | `/credit-products/` | Master Credit Product Catalog |
+| **Products** | `/card-products/` | Visual/Feature Card Variants |
+| **Accounts** | `/credit-accounts/{id}/status` | Lifecycle: SUSPENDED, FROZEN, CLOSED |
+| **Accounts** | `/credit-accounts/{id}/limits` | Increase/Decrease Credit exposure |
+| **Accounts** | `/credit-accounts/{id}/interest`| Update dynamic APR rates |
+
+---
+
+## Tech Stack & Design Patterns
+- **Framework**: FastAPI (Asynchronous logic)
+- **Database**: SQLAlchemy 2.0 (PostgreSQL/SQLite)
+- **Validation**: Pydantic v2 (Strict lowercase enforcement for codes/IDs)
+- **Security**: JWT-based Auth, Bcrypt Hashing, Fernet Encryption for sensitive fields.
+- **Design Pattern**: Command-Query Separation (CQS) for lifecycle dispatchers.
+
+## Setup & Deployment
+
+1. **Environment**: Copy `.env.example` to `.env` and configure your DATABASE_URL.
+2. **Migration**: Run the table synchronization scripts (or use `alembic` if configured).
+3. **Run**:
 ```bash
 uvicorn app.main:app --reload
 ```
-
-Then visit the generated swagger documentation at `http://127.0.0.1:8000/docs` to interact visually with the API.
+Interact via the Swagger UI at: `http://127.0.0.1:8000/docs`

@@ -78,7 +78,7 @@ def simulate_bureau_score(
     
     return {
         "bureau_score": final_score,
-        "report_reference_id": f"BUR_{random.randint(100000, 999999)}",
+        "report_reference_id": f"bur_{random.randint(100000, 999999)}",
         "snapshot": {
             "factors": {
                 "base": base_score,

@@ -42,7 +42,7 @@ def create_credit_product(
     is made live for customers. DRAFT status allows for multi-stage setup and compliance review.
     """
     while True:
-        product_code = f"CP-{random.randint(10000, 99999)}"
+        product_code = f"cp-{random.randint(10000, 99999)}"
         existing = db.query(CreditProductInformation).filter(CreditProductInformation.product_code == product_code).first()
         if not existing:
             break

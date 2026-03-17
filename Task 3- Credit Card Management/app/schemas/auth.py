@@ -1,5 +1,8 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict, condecimal
 from decimal import Decimal
+from typing import Optional, List
+from datetime import date
+from fastapi import HTTPException
 
 
 

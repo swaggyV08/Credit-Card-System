@@ -2,7 +2,7 @@ import uuid
 from uuid import UUID
 from typing import Optional, List, Union
 from datetime import datetime, date
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, condecimal, model_validator
 from app.models.enums import (
     ApplicationStatus, ApplicationStage, AccountStatus, CardType, CardStatus,
     InternalRiskRating, AutoPayType, AMLRiskCategory

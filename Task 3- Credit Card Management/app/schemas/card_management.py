@@ -114,6 +114,8 @@ class CardActionResponse(BaseModel):
     message: str
     old_status: CCMCardStatus
     new_status: CCMCardStatus
+    card_id: Optional[uuid.UUID] = None
+    unblock_id: Optional[str] = None
 
 # -----------------
 # Requests (Issue / Activate / etc.)

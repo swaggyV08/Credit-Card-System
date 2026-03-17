@@ -2,6 +2,7 @@ import uuid
 from typing import List, Optional, Union
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Body
 from sqlalchemy.orm import Session
+from pydantic import ValidationError
 
 from app.api.deps import get_db
 from app.schemas.card_management import (
@@ -107,10 +108,7 @@ async def activate_card_dispatcher(
 @router.post("/{card_id}", response_model=CardActionResponse)
 async def card_lifecycle_dispatcher(
     card_id: uuid.UUID,
-    data: Union[
-        CCMCardBlockRequest, CCMCardUnblockRequest, CCMCardReplaceRequest, 
-        CCMCardTerminateRequest, CCMCardRenewRequest
-    ],
+    data: dict = Body(..., example={ "reason": "LOST" }),
     command: str = Query(..., description="Action to perform on the card: block, unblock_otp, unblock, replace, terminate, renew"),
     db: Session = Depends(get_db)
 ):
@@ -133,34 +131,28 @@ async def card_lifecycle_dispatcher(
     command = command.lower().strip()
     try:
         if command == CCMCommand.BLOCK.value.lower():
-            if not isinstance(data, CCMCardBlockRequest):
-                raise ValueError("Invalid body for 'block' command. Expected reason field.")
-            return CardManagementService.block_card(db, card_id, data)
+            validated_data = CCMCardBlockRequest.model_validate(data)
+            return CardManagementService.block_card(db, card_id, validated_data)
 
         elif command == CCMCommand.UNBLOCK_OTP.value.lower():
-            if not isinstance(data, CCMCardUnblockRequest):
-                raise ValueError("Invalid body for 'unblock_otp' command.")
-            return CardManagementService.initiate_unblock(db, card_id, data)
+            validated_data = CCMCardUnblockRequest.model_validate(data)
+            return CardManagementService.initiate_unblock(db, card_id, validated_data)
 
         elif command == CCMCommand.UNBLOCK.value.lower():
-            if not isinstance(data, CCMCardUnblockRequest):
-                raise ValueError("Invalid body for 'unblock' command.")
-            return CardManagementService.confirm_unblock(db, card_id, data)
+            validated_data = CCMCardUnblockRequest.model_validate(data)
+            return CardManagementService.confirm_unblock(db, card_id, validated_data)
 
         elif command == CCMCommand.REPLACE.value.lower():
-            if not isinstance(data, CCMCardReplaceRequest):
-                raise ValueError("Invalid body for 'replace' command. Expected reason, reissue_type, and Delivery Address.")
-            return CardManagementService.replace_card(db, card_id, data)
+            validated_data = CCMCardReplaceRequest.model_validate(data)
+            return CardManagementService.replace_card(db, card_id, validated_data)
 
         elif command == CCMCommand.TERMINATE.value.lower():
-            if not isinstance(data, CCMCardTerminateRequest):
-                raise ValueError("Invalid body for 'terminate' command. Expected reason.")
-            return CardManagementService.terminate_card(db, card_id, data)
+            validated_data = CCMCardTerminateRequest.model_validate(data)
+            return CardManagementService.terminate_card(db, card_id, validated_data)
 
         elif command == CCMCommand.RENEW.value.lower():
-            if not isinstance(data, CCMCardRenewRequest):
-                raise ValueError("Invalid body for 'renew' command. Expected reissue_type and delivery_address.")
-            return CardManagementService.renew_card(db, card_id, data)
+            validated_data = CCMCardRenewRequest.model_validate(data)
+            return CardManagementService.renew_card(db, card_id, validated_data)
 
         else:
             valid_commands = ", ".join([c.value for c in CCMCommand])
@@ -170,7 +162,7 @@ async def card_lifecycle_dispatcher(
             )
     except HTTPException:
         raise
-    except ValueError as e:
+    except (ValueError, ValidationError) as e:
         raise HTTPException(
             status_code=422,
             detail=f"Validation error: {str(e)}"

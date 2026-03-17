@@ -9,34 +9,34 @@ from app.models.enums import (
 )
 
 class CreditProductLimitsCreate(BaseModel):
-    min_credit_limit: condecimal(max_digits=13, decimal_places=3, gt=0) = Field(..., description="Minimum credit limit")
-    max_credit_limit: condecimal(max_digits=13, decimal_places=3, gt=0) = Field(..., description="Maximum credit limit")
-    max_total_exposure_per_cif: condecimal(max_digits=13, decimal_places=3, gt=0) = Field(..., description="Max exposure")
+    min_credit_limit: condecimal(max_digits=13, decimal_places=3, gt=0) = Field(..., description="Minimum credit limit", json_schema_extra={"example": "0000000000.000"})
+    max_credit_limit: condecimal(max_digits=13, decimal_places=3, gt=0) = Field(..., description="Maximum credit limit", json_schema_extra={"example": "0000000000.000"})
+    max_total_exposure_per_cif: condecimal(max_digits=13, decimal_places=3, gt=0) = Field(..., description="Max exposure", json_schema_extra={"example": "0000000000.000"})
     revolving_credit_allowed: bool = Field(True, description="Revolving allowed")
     overlimit_allowed: bool = Field(False, description="Overlimit allowed")
-    overlimit_percentage: condecimal(max_digits=13, decimal_places=3) = Field(Decimal("0.0"), description="Overlimit %")
+    overlimit_percentage: condecimal(max_digits=13, decimal_places=3) = Field(Decimal("0.0"), description="Overlimit %", json_schema_extra={"example": "0000000000.000"})
 
 class CreditProductInterestFrameworkCreate(BaseModel):
     interest_type: InterestType = Field(InterestType.FIXED, description="Interest type")
-    base_interest_rate: condecimal(max_digits=13, decimal_places=3, ge=0) = Field(..., description="Base rate")
+    base_interest_rate: condecimal(max_digits=13, decimal_places=3, ge=0) = Field(..., description="Base rate", json_schema_extra={"example": "0000000000.000"})
     interest_calculation_method: InterestCalculationMethod = Field(InterestCalculationMethod.AVERAGE_DAILY_BALANCE, description="Method")
     interest_basis: InterestBasis = Field(InterestBasis.ACTUAL_360, description="Basis")
-    penal_interest_rate: condecimal(max_digits=13, decimal_places=3, ge=0) = Field(..., description="Penal rate")
+    penal_interest_rate: condecimal(max_digits=13, decimal_places=3, ge=0) = Field(..., description="Penal rate", json_schema_extra={"example": "0000000000.000"})
     interest_free_allowed: bool = Field(True, description="Interest free allowed")
     max_interest_free_days: int = Field(30, le=30, description="Max free days")
 
 class CreditProductFeesCreate(BaseModel):
-    joining_fee: condecimal(max_digits=13, decimal_places=3) = Field(Decimal("0.0"), description="Joining fee")
-    annual_fee: condecimal(max_digits=13, decimal_places=3) = Field(Decimal("0.0"), description="Annual fee")
-    renewal_fee: condecimal(max_digits=13, decimal_places=3) = Field(Decimal("0.0"), description="Renewal fee")
-    late_payment_fee: condecimal(max_digits=13, decimal_places=3) = Field(Decimal("0.0"), description="Late fee")
-    overlimit_fee: condecimal(max_digits=13, decimal_places=3) = Field(Decimal("0.0"), description="Overlimit fee")
-    cash_advance_fee: condecimal(max_digits=13, decimal_places=3) = Field(Decimal("0.0"), description="Cash fee")
+    joining_fee: condecimal(max_digits=13, decimal_places=3) = Field(Decimal("0.0"), description="Joining fee", json_schema_extra={"example": "0000000000.000"})
+    annual_fee: condecimal(max_digits=13, decimal_places=3) = Field(Decimal("0.0"), description="Annual fee", json_schema_extra={"example": "0000000000.000"})
+    renewal_fee: condecimal(max_digits=13, decimal_places=3) = Field(Decimal("0.0"), description="Renewal fee", json_schema_extra={"example": "0000000000.000"})
+    late_payment_fee: condecimal(max_digits=13, decimal_places=3) = Field(Decimal("0.0"), description="Late fee", json_schema_extra={"example": "0000000000.000"})
+    overlimit_fee: condecimal(max_digits=13, decimal_places=3) = Field(Decimal("0.0"), description="Overlimit fee", json_schema_extra={"example": "0000000000.000"})
+    cash_advance_fee: condecimal(max_digits=13, decimal_places=3) = Field(Decimal("0.0"), description="Cash fee", json_schema_extra={"example": "0000000000.000"})
 
 class CreditProductEligibilityRulesCreate(BaseModel):
     min_age: int = Field(18, description="Min age")
     max_age: int = Field(70, description="Max age")
-    min_income_required: condecimal(max_digits=13, decimal_places=3, ge=0) = Field(..., description="Min income")
+    min_income_required: condecimal(max_digits=13, decimal_places=3, ge=0) = Field(..., description="Min income", json_schema_extra={"example": "0000000000.000"})
     employment_types_allowed: List[str] = Field(..., description="Employment allowed")
     min_credit_score: int = Field(750, description="Min score")
     secured_flag: bool = False

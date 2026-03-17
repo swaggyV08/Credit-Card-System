@@ -25,14 +25,14 @@ from app.models.enums import (
 # Base Account
 # -----------------
 class CCMCreditAccountBase(BaseModel):
-    credit_limit: condecimal(max_digits=13, decimal_places=3, ge=0)
-    available_credit: condecimal(max_digits=13, decimal_places=3, ge=0)
-    outstanding_balance: condecimal(max_digits=13, decimal_places=3, ge=0)
-    cash_limit: condecimal(max_digits=13, decimal_places=3, ge=0)
+    credit_limit: condecimal(max_digits=13, decimal_places=3, ge=0) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    available_credit: condecimal(max_digits=13, decimal_places=3, ge=0) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    outstanding_balance: condecimal(max_digits=13, decimal_places=3, ge=0) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    cash_limit: condecimal(max_digits=13, decimal_places=3, ge=0) = Field(..., json_schema_extra={"example": "0000000000.000"})
     billing_cycle_day: int
-    minimum_due: condecimal(max_digits=13, decimal_places=3, ge=0)
-    interest_rate: condecimal(max_digits=13, decimal_places=3, ge=0)
-    late_fee: condecimal(max_digits=13, decimal_places=3, ge=0)
+    minimum_due: condecimal(max_digits=13, decimal_places=3, ge=0) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    interest_rate: condecimal(max_digits=13, decimal_places=3, ge=0) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    late_fee: condecimal(max_digits=13, decimal_places=3, ge=0) = Field(..., json_schema_extra={"example": "0000000000.000"})
 
     @field_validator("credit_limit", "available_credit", "outstanding_balance", "cash_limit", "minimum_due", "interest_rate", "late_fee")
     @classmethod
@@ -67,8 +67,8 @@ class CCMCreditCardBase(BaseModel):
     is_atm_enabled: bool = Field(True, description="Control for Cash withdrawals at ATMs")
     is_domestic_enabled: bool = Field(True, description="Control for within-country transactions")
     
-    daily_spend_limit: Optional[condecimal(max_digits=13, decimal_places=3, ge=0)] = Field(None, description="Maximum total spend allowed per 24h cycle")
-    daily_withdraw_limit: Optional[condecimal(max_digits=13, decimal_places=3, ge=0)] = Field(None, description="Maximum total ATM withdrawal allowed per 24h cycle")
+    daily_spend_limit: Optional[condecimal(max_digits=13, decimal_places=3, ge=0)] = Field(None, description="Maximum total spend allowed per 24h cycle", json_schema_extra={"example": "0000000000.000"})
+    daily_withdraw_limit: Optional[condecimal(max_digits=13, decimal_places=3, ge=0)] = Field(None, description="Maximum total ATM withdrawal allowed per 24h cycle", json_schema_extra={"example": "0000000000.000"})
 
     @field_validator("daily_spend_limit", "daily_withdraw_limit")
     @classmethod
@@ -178,7 +178,7 @@ class CCMCardRenewRequest(BaseModel):
 # -----------------
 class CCMCardTransactionBase(BaseModel):
     card_id: uuid.UUID
-    amount: condecimal(max_digits=13, decimal_places=3, gt=0)
+    amount: condecimal(max_digits=13, decimal_places=3, gt=0) = Field(..., json_schema_extra={"example": "0000000000.000"})
 
     @field_validator("amount")
     @classmethod
@@ -199,7 +199,7 @@ class CCMCardTransactionBase(BaseModel):
 
 class CCMCardTransactionResponse(BaseModel):
     transaction_id: uuid.UUID = Field(..., alias="id")
-    amount: condecimal(max_digits=13, decimal_places=3)
+    amount: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
     merchant: str = Field(..., alias="merchant_name")
     status: CCMTransactionStatus
     is_fraud_flagged: bool
@@ -209,7 +209,7 @@ class CCMCardTransactionResponse(BaseModel):
 
 class CCMChargeRequest(BaseModel):
     card_id: uuid.UUID
-    amount: condecimal(max_digits=13, decimal_places=3, gt=0)
+    amount: condecimal(max_digits=13, decimal_places=3, gt=0) = Field(..., json_schema_extra={"example": "0000000000.000"})
     merchant_name: str
     merchant_category: Optional[str] = None
     currency: str = "INR"

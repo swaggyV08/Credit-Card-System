@@ -30,7 +30,7 @@ class EffectiveFromDate(BaseModel):
     Date: int = Field(..., ge=1, le=31, alias="Date")
 
 class CreditLimitUpdateRequest(BaseModel):
-    new_credit_limit: condecimal(max_digits=13, decimal_places=3, gt=0)
+    new_credit_limit: condecimal(max_digits=13, decimal_places=3, gt=0) = Field(..., json_schema_extra={"example": "0000000000.000"})
     reason_code: CCMLimitReasonCode
     notes: Optional[str] = None
     effective_from: EffectiveFromDate
@@ -68,9 +68,9 @@ class RiskFlagUpdateRequest(BaseModel):
         return v
 
 class InterestUpdateRequest(BaseModel):
-    purchase_apr: condecimal(max_digits=13, decimal_places=3, ge=0)
-    cash_apr: condecimal(max_digits=13, decimal_places=3, ge=0)
-    penalty_apr: condecimal(max_digits=13, decimal_places=3, ge=0)
+    purchase_apr: condecimal(max_digits=13, decimal_places=3, ge=0) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    cash_apr: condecimal(max_digits=13, decimal_places=3, ge=0) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    penalty_apr: condecimal(max_digits=13, decimal_places=3, ge=0) = Field(..., json_schema_extra={"example": "0000000000.000"})
 
     @field_validator("purchase_apr", "cash_apr", "penalty_apr")
     @classmethod
@@ -79,12 +79,12 @@ class InterestUpdateRequest(BaseModel):
 
 class OverlimitConfigRequest(BaseModel):
     overlimit_enabled: bool
-    overlimit_buffer: condecimal(max_digits=13, decimal_places=3, ge=0) = Decimal("0.0")
-    overlimit_fee: condecimal(max_digits=13, decimal_places=3, ge=0) = Decimal("0.0")
+    overlimit_buffer: condecimal(max_digits=13, decimal_places=3, ge=0) = Field(Decimal("0.0"), json_schema_extra={"example": "0000000000.000"})
+    overlimit_fee: condecimal(max_digits=13, decimal_places=3, ge=0) = Field(Decimal("0.0"), json_schema_extra={"example": "0000000000.000"})
 
 class ManualAdjustmentRequest(BaseModel):
     adjustment_type: CCMAdjustmentType
-    amount: condecimal(max_digits=13, decimal_places=3, gt=0)
+    amount: condecimal(max_digits=13, decimal_places=3, gt=0) = Field(..., json_schema_extra={"example": "0000000000.000"})
     reason_code: CCMAdjustmentReasonCode
     notes: Optional[str] = None
 
@@ -104,9 +104,9 @@ class CreditAccountSummary(BaseModel):
     user_id: UUID
     product_code: Optional[str]
     status: CCMAccountStatus
-    credit_limit: condecimal(max_digits=13, decimal_places=3)
-    available_credit: condecimal(max_digits=13, decimal_places=3)
-    outstanding_balance: condecimal(max_digits=13, decimal_places=3)
+    credit_limit: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    available_credit: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    outstanding_balance: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
     billing_cycle_day: int
     card_count: int = 0
     created_at: datetime
@@ -122,20 +122,20 @@ class CreditAccountSummary(BaseModel):
         return validate_currency_10_3(v)
 
 class CreditAccountDetail(CreditAccountSummary):
-    cash_limit: condecimal(max_digits=13, decimal_places=3)
-    interest_rate: condecimal(max_digits=13, decimal_places=3)
-    late_fee: condecimal(max_digits=13, decimal_places=3)
+    cash_limit: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    interest_rate: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    late_fee: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
     grace_period: int = Field(..., alias="payment_due_days")
     
     # APRs
-    purchase_apr: condecimal(max_digits=13, decimal_places=3)
-    cash_apr: condecimal(max_digits=13, decimal_places=3)
-    penalty_apr: condecimal(max_digits=13, decimal_places=3)
+    purchase_apr: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    cash_apr: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    penalty_apr: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
     
     risk_flag: CCMAccountRiskFlag
     overlimit_enabled: bool
-    overlimit_buffer: condecimal(max_digits=13, decimal_places=3)
-    overlimit_fee: condecimal(max_digits=13, decimal_places=3)
+    overlimit_buffer: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    overlimit_fee: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
     
     cards: List[AdminCardSummary] = []
     updated_at: Optional[datetime]
@@ -149,9 +149,9 @@ class CreditAccountDetail(CreditAccountSummary):
 
 class CreditLimitUpdateResponse(BaseModel):
     credit_account_id: UUID
-    old_credit_limit: condecimal(max_digits=13, decimal_places=3)
-    new_credit_limit: condecimal(max_digits=13, decimal_places=3)
-    available_credit: condecimal(max_digits=13, decimal_places=3)
+    old_credit_limit: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    new_credit_limit: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    available_credit: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
     updated_by: UUID
     updated_at: datetime
 
@@ -182,9 +182,9 @@ class RiskFlagUpdateResponse(BaseModel):
 
 class InterestUpdateResponse(BaseModel):
     credit_account_id: UUID
-    purchase_apr: condecimal(max_digits=13, decimal_places=3)
-    cash_apr: condecimal(max_digits=13, decimal_places=3)
-    penalty_apr: condecimal(max_digits=13, decimal_places=3)
+    purchase_apr: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    cash_apr: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    penalty_apr: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
 
     @field_validator("purchase_apr", "cash_apr", "penalty_apr")
     @classmethod
@@ -194,8 +194,8 @@ class InterestUpdateResponse(BaseModel):
 class OverlimitConfigResponse(BaseModel):
     credit_account_id: UUID
     overlimit_enabled: bool
-    overlimit_buffer: condecimal(max_digits=13, decimal_places=3)
-    overlimit_fee: condecimal(max_digits=13, decimal_places=3)
+    overlimit_buffer: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    overlimit_fee: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
 
     @field_validator("overlimit_buffer", "overlimit_fee")
     @classmethod
@@ -205,9 +205,9 @@ class OverlimitConfigResponse(BaseModel):
 class AdjustmentResponse(BaseModel):
     adjustment_id: UUID = Field(..., validation_alias="id")
     credit_account_id: UUID
-    amount: condecimal(max_digits=13, decimal_places=3)
+    amount: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
     adjustment_type: CCMAdjustmentType
-    new_outstanding_balance: condecimal(max_digits=13, decimal_places=3)
+    new_outstanding_balance: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
     created_at: datetime
 
     model_config = {
@@ -218,10 +218,10 @@ class AdjustmentResponse(BaseModel):
 class LedgerEntryResponse(BaseModel):
     entry_id: UUID = Field(..., validation_alias="id")
     type: CCMLedgerEntryType = Field(..., validation_alias="entry_type")
-    amount: condecimal(max_digits=13, decimal_places=3)
+    amount: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
     description: str
-    balance_before: condecimal(max_digits=13, decimal_places=3)
-    balance_after: condecimal(max_digits=13, decimal_places=3)
+    balance_before: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    balance_after: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
     created_at: datetime
 
     model_config = {
@@ -241,7 +241,7 @@ class PaginatedAccountsResponse(BaseModel):
 
 class AccountLimitsResponse(BaseModel):
     credit_account_id: UUID
-    credit_limit: condecimal(max_digits=13, decimal_places=3)
-    available_credit: condecimal(max_digits=13, decimal_places=3)
-    cash_limit: condecimal(max_digits=13, decimal_places=3)
-    outstanding_balance: condecimal(max_digits=13, decimal_places=3)
+    credit_limit: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    available_credit: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    cash_limit: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    outstanding_balance: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})

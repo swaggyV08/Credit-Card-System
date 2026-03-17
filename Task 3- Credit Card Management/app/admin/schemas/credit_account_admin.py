@@ -29,6 +29,19 @@ class EffectiveFromDate(BaseModel):
     Month: int = Field(..., ge=1, le=12)
     Date: int = Field(..., ge=1, le=31, alias="Date")
 
+    @model_validator(mode='after')
+    def validate_future_date(self) -> 'EffectiveFromDate':
+        from datetime import date
+        try:
+            input_date = date(self.Year, self.Month, self.Date)
+            if input_date < date.today():
+                raise ValueError("Effective date must be today or in the future.")
+        except ValueError as e:
+            if "Effective date" in str(e):
+                raise
+            raise ValueError("Invalid date provided.")
+        return self
+
 class CreditLimitUpdateRequest(BaseModel):
     new_credit_limit: condecimal(max_digits=13, decimal_places=3, gt=0) = Field(..., json_schema_extra={"example": "0000000000.000"})
     reason_code: CCMLimitReasonCode

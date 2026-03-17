@@ -1,5 +1,5 @@
 from typing import List, Optional, Any, Dict
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 from uuid import UUID
 from datetime import datetime
 from app.models.enums import (
@@ -12,6 +12,19 @@ class EffectiveToSchema(BaseModel):
     day: int = Field(..., ge=1, le=31)
     month: int = Field(..., ge=1, le=12)
     year: int = Field(..., ge=2024)
+
+    @model_validator(mode='after')
+    def validate_future_date(self) -> 'EffectiveToSchema':
+        from datetime import date
+        try:
+            input_date = date(self.year, self.month, self.day)
+            if input_date < date.today():
+                raise ValueError("Effective date must be today or in the future.")
+        except ValueError as e:
+            if "Effective date" in str(e):
+                raise
+            raise ValueError("Invalid date provided.")
+        return self
 
 class CardProductApprovalRequest(BaseModel):
     effective_to: Optional[EffectiveToSchema] = None

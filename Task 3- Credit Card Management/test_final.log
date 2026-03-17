@@ -1,0 +1,182 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.12.6, pytest-9.0.2, pluggy-1.6.0 -- C:\Python312\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management
+plugins: anyio-4.12.1
+collecting ... collected 3 items
+
+tests/api/admin/test_workflow_v3.py::test_full_banking_workflow FAILED
+tests/api/admin/test_workflow_v3.py::test_negative_issuance_product_mismatch PASSED
+tests/api/admin/test_workflow_v3.py::test_negative_activation_invalid_otp PASSED
+
+================================== FAILURES ===================================
+_________________________ test_full_banking_workflow __________________________
+tests\api\admin\test_workflow_v3.py:209: in test_full_banking_workflow
+    mock_db.query.return_value.filter.return_value.first.side_effect = [mock_card]
+                                                                        ^^^^^^^^^
+E   NameError: name 'mock_card' is not defined
+============================== warnings summary ===============================
+app\schemas\auth.py:10
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\schemas\auth.py:10: PydanticDeprecatedSince20: Using extra keyword arguments on `Field` is deprecated and will be removed. Use `json_schema_extra` instead. (Extra keys: 'example'). Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    country_code: str = Field(..., example="+91")
+
+app\schemas\auth.py:11
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\schemas\auth.py:11: PydanticDeprecatedSince20: Using extra keyword arguments on `Field` is deprecated and will be removed. Use `json_schema_extra` instead. (Extra keys: 'example'). Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    phone_number: str = Field(..., example="9876543210")
+
+app\schemas\auth.py:172
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\schemas\auth.py:172: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class ResidentialDetailsSchema(BaseModel):
+
+app\schemas\auth.py:226
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\schemas\auth.py:226: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class EmploymentDetailsSchema(BaseModel):
+
+app\schemas\auth.py:235
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\schemas\auth.py:235: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class FinancialDetailsSchema(BaseModel):
+
+app\admin\schemas\card_issuance.py:25
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\card_issuance.py:25: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CreditCardApplicationSummary(BaseModel):
+
+app\admin\schemas\card_issuance.py:32
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\card_issuance.py:32: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CreditCardApplicationResponse(BaseModel):
+
+app\admin\schemas\card_issuance.py:104
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\card_issuance.py:104: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CreditAccountResponse(BaseModel):
+
+app\admin\schemas\card_issuance.py:133
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\card_issuance.py:133: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CustomerCreditAccountResponse(BaseModel):
+
+app\admin\schemas\card_issuance.py:175
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\card_issuance.py:175: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CardResponse(BaseModel):
+
+app\admin\schemas\card_issuance.py:197
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\card_issuance.py:197: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CustomerCardResponse(BaseModel):
+
+app\schemas\credit.py:44
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\schemas\credit.py:44: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class ApplicationSummaryResponse(BaseModel):
+
+app\schemas\credit.py:53
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\schemas\credit.py:53: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class ApplicationResponse(BaseModel):
+
+app\schemas\credit.py:65
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\schemas\credit.py:65: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class BureauReportResponse(BaseModel):
+
+app\schemas\credit.py:75
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\schemas\credit.py:75: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class RiskAssessmentResponse(BaseModel):
+
+app\schemas\credit.py:85
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\schemas\credit.py:85: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class FraudFlagResponse(BaseModel):
+
+app\schemas\credit.py:100
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\schemas\credit.py:100: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CreditDecisionResponse(BaseModel):
+
+app\schemas\admin.py:32
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\schemas\admin.py:32: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class AdminResponse(AdminBase):
+
+app\admin\schemas\credit_product.py:83
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\credit_product.py:83: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CreditProductLimitsResponse(CreditProductLimitsCreate):
+
+app\admin\schemas\credit_product.py:87
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\credit_product.py:87: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CreditProductInterestFrameworkResponse(CreditProductInterestFrameworkCreate):
+
+app\admin\schemas\credit_product.py:91
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\credit_product.py:91: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CreditProductFeesResponse(CreditProductFeesCreate):
+
+app\admin\schemas\credit_product.py:97
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\credit_product.py:97: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CreditProductEligibilityRulesResponse(CreditProductEligibilityRulesCreate):
+
+app\admin\schemas\credit_product.py:101
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\credit_product.py:101: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CreditProductComplianceMetadataResponse(CreditProductComplianceMetadataCreate):
+
+app\admin\schemas\credit_product.py:105
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\credit_product.py:105: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CreditProductAccountingMappingResponse(CreditProductAccountingMappingCreate):
+
+app\admin\schemas\credit_product.py:109
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\credit_product.py:109: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CreditProductGovernanceResponse(BaseModel):
+
+app\admin\schemas\credit_product.py:121
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\credit_product.py:121: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CreditProductResponse(BaseModel):
+
+app\admin\schemas\credit_product.py:154
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\credit_product.py:154: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CreditProductStatusUpdateResponse(BaseModel):
+
+app\admin\schemas\credit_product.py:164
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\credit_product.py:164: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CreditProductSummaryResponse(BaseModel):
+
+app\admin\schemas\card_product.py:107
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\card_product.py:107: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CardBillingConfigurationResponse(CardBillingConfigurationCreate):
+
+app\admin\schemas\card_product.py:112
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\card_product.py:112: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CardTransactionControlsResponse(CardTransactionControlsCreate):
+
+app\admin\schemas\card_product.py:117
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\card_product.py:117: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CardFxConfigurationResponse(CardFxConfigurationCreate):
+
+app\admin\schemas\card_product.py:122
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\card_product.py:122: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CardUsageLimitsResponse(CardUsageLimitsCreate):
+
+app\admin\schemas\card_product.py:127
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\card_product.py:127: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CardRewardsConfigurationResponse(CardRewardsConfigurationCreate):
+
+app\admin\schemas\card_product.py:132
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\card_product.py:132: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CardAuthorizationRulesResponse(CardAuthorizationRulesCreate):
+
+app\admin\schemas\card_product.py:137
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\card_product.py:137: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CardLifecycleRulesResponse(CardLifecycleRulesCreate):
+
+app\admin\schemas\card_product.py:142
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\card_product.py:142: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CardFraudRiskProfileResponse(CardFraudRiskProfileCreate):
+
+app\admin\schemas\card_product.py:147
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\card_product.py:147: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CardProductGovernanceResponse(BaseModel):
+
+app\admin\schemas\card_product.py:161
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\card_product.py:161: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CardProductResponse(BaseModel):
+
+app\admin\schemas\card_product.py:185
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\card_product.py:185: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CardProductCreateResponse(BaseModel):
+
+app\admin\schemas\card_product.py:197
+  C:\Users\VISHNU P\Assignments\Task 3- Credit Card Management\app\admin\schemas\card_product.py:197: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class CardProductApprovalResponse(BaseModel):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/api/admin/test_workflow_v3.py::test_full_banking_workflow - Name...
+================== 1 failed, 2 passed, 40 warnings in 2.34s ===================

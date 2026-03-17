@@ -222,7 +222,37 @@ def get_application_details(
         raise HTTPException(status_code=404, detail="Application not found")
     
     # Auto-generate assessments if missing
-    CardIssuanceService.run_engines(db, app)
+    bureau_report = db.query(BureauReport).filter(BureauReport.application_id == app.id).first()
+    if not bureau_report:
+        cif = db.query(CustomerProfile).filter(CustomerProfile.id == app.cif_id).first()
+        assessment = CardIssuanceService.run_engines_pre_assessment(db, cif, app, app.credit_product)
+        
+        # Save generated assessments back to DB
+        new_bureau = BureauReport(
+            application_id=app.id,
+            bureau_score=assessment["bureau_data"]["bureau_score"],
+            report_reference_id=assessment["bureau_data"]["report_reference_id"],
+            bureau_snapshot=assessment["bureau_data"]["snapshot"]
+        )
+        db.add(new_bureau)
+        
+        for rule in assessment["fraud_rules"]:
+            f_flag = FraudFlag(
+                application_id=app.id,
+                flag_code=rule.code,
+                flag_description=rule.description,
+                severity=rule.severity
+            )
+            db.add(f_flag)
+            
+        new_risk = RiskAssessment(
+            application_id=app.id,
+            risk_band=assessment["risk_assessment"]["band"],
+            confidence_score=assessment["risk_assessment"]["confidence"],
+            assessment_explanation=assessment["risk_assessment"]["explanation"]
+        )
+        db.add(new_risk)
+        db.commit()
     
     return app
 

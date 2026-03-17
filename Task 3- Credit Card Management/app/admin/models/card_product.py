@@ -37,6 +37,12 @@ class CardProductCore(Base):
     governance = relationship("CardProductGovernance", back_populates="card_product", uselist=False, cascade="all, delete-orphan")
     applications = relationship("CreditCardApplication", back_populates="card_product")
 
+    @property
+    def status(self) -> ProductStatus:
+        if self.governance:
+            return self.governance.status
+        return ProductStatus.DRAFT
+
 class CardBillingConfiguration(Base):
     __tablename__ = "card_billing_configuration"
 

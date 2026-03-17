@@ -182,35 +182,44 @@ class AccountFreezeResponse(BaseModel):
 
 class BillingCycleUpdateResponse(BaseModel):
     credit_account_id: UUID
-    billing_cycle_day: int
-    grace_period: int = Field(..., alias="payment_due_days")
+    old_billing_cycle_day: int
+    old_grace_period: int
+    new_billing_cycle_day: int = Field(..., alias="billing_cycle_day")
+    new_grace_period: int = Field(..., alias="payment_due_days")
     next_statement_date: datetime
 
     model_config = ConfigDict(populate_by_name=True)
 
 class RiskFlagUpdateResponse(BaseModel):
     credit_account_id: UUID
-    risk_flag: CCMAccountRiskFlag
+    old_risk_flag: CCMAccountRiskFlag
+    new_risk_flag: CCMAccountRiskFlag = Field(..., alias="risk_flag")
     updated_at: datetime
 
 class InterestUpdateResponse(BaseModel):
     credit_account_id: UUID
-    purchase_apr: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
-    cash_apr: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
-    penalty_apr: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    old_purchase_apr: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    old_cash_apr: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    old_penalty_apr: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    new_purchase_apr: condecimal(max_digits=13, decimal_places=3) = Field(..., alias="purchase_apr", json_schema_extra={"example": "0000000000.000"})
+    new_cash_apr: condecimal(max_digits=13, decimal_places=3) = Field(..., alias="cash_apr", json_schema_extra={"example": "0000000000.000"})
+    new_penalty_apr: condecimal(max_digits=13, decimal_places=3) = Field(..., alias="penalty_apr", json_schema_extra={"example": "0000000000.000"})
 
-    @field_validator("purchase_apr", "cash_apr", "penalty_apr")
+    @field_validator("old_purchase_apr", "old_cash_apr", "old_penalty_apr", "new_purchase_apr", "new_cash_apr", "new_penalty_apr")
     @classmethod
     def validate_apr_resp(cls, v):
         return validate_currency_10_3(v)
 
 class OverlimitConfigResponse(BaseModel):
     credit_account_id: UUID
-    overlimit_enabled: bool
-    overlimit_buffer: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
-    overlimit_fee: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    old_overlimit_enabled: bool
+    old_overlimit_buffer: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    old_overlimit_fee: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
+    new_overlimit_enabled: bool = Field(..., alias="overlimit_enabled")
+    new_overlimit_buffer: condecimal(max_digits=13, decimal_places=3) = Field(..., alias="overlimit_buffer", json_schema_extra={"example": "0000000000.000"})
+    new_overlimit_fee: condecimal(max_digits=13, decimal_places=3) = Field(..., alias="overlimit_fee", json_schema_extra={"example": "0000000000.000"})
 
-    @field_validator("overlimit_buffer", "overlimit_fee")
+    @field_validator("old_overlimit_buffer", "old_overlimit_fee", "new_overlimit_buffer", "new_overlimit_fee")
     @classmethod
     def validate_overlimit_resp(cls, v):
         return validate_currency_10_3(v)

@@ -107,13 +107,15 @@ def update_billing_cycle(
     admin=Depends(deps.get_current_admin_user)
 ):
     """Updates the billing cycle day (1-28) and payment due days for an account, and returns the projected next statement date."""
-    account = CreditAccountAdminService.update_billing_cycle(db, credit_account_id, req)
+    account, old_day, old_grace = CreditAccountAdminService.update_billing_cycle(db, credit_account_id, req)
     # Simple projection for next statement date (fictional logic for response)
     next_date = datetime.now() + timedelta(days=30)
     return {
         "credit_account_id": account.id,
-        "billing_cycle_day": account.billing_cycle_day,
-        "payment_due_days": account.payment_due_days,
+        "old_billing_cycle_day": old_day,
+        "old_grace_period": old_grace,
+        "new_billing_cycle_day": account.billing_cycle_day,
+        "new_grace_period": account.payment_due_days,
         "next_statement_date": next_date
     }
 
@@ -125,10 +127,11 @@ def update_risk_flag(
     admin=Depends(deps.get_current_admin_user)
 ):
     """Updates the risk classification flag for an account. risk_flag values: NONE, LOW_RISK, MEDIUM_RISK, HIGH_RISK, CRITICAL."""
-    account = CreditAccountAdminService.update_risk_flag(db, credit_account_id, req)
+    account, old_risk = CreditAccountAdminService.update_risk_flag(db, credit_account_id, req)
     return {
         "credit_account_id": account.id,
-        "risk_flag": account.risk_flag,
+        "old_risk_flag": old_risk,
+        "new_risk_flag": account.risk_flag,
         "updated_at": datetime.now()
     }
 
@@ -140,9 +143,12 @@ def update_interest(
     admin=Depends(deps.get_current_admin_user)
 ):
     """Updates purchase APR, cash advance APR, and penalty APR for an account. All values must be >= 0."""
-    account = CreditAccountAdminService.update_interest(db, credit_account_id, req)
+    account, old_p, old_c, old_pen = CreditAccountAdminService.update_interest(db, credit_account_id, req)
     return {
         "credit_account_id": account.id,
+        "old_purchase_apr": old_p,
+        "old_cash_apr": old_c,
+        "old_penalty_apr": old_pen,
         "purchase_apr": account.purchase_apr,
         "cash_apr": account.cash_apr,
         "penalty_apr": account.penalty_apr
@@ -156,9 +162,12 @@ def update_overlimit_config(
     admin=Depends(deps.get_current_admin_user)
 ):
     """Enables or disables overlimit spending for an account, and configures the overlimit buffer amount and overlimit fee."""
-    account = CreditAccountAdminService.update_overlimit(db, credit_account_id, req)
+    account, old_en, old_buf, old_fee = CreditAccountAdminService.update_overlimit(db, credit_account_id, req)
     return {
         "credit_account_id": account.id,
+        "old_overlimit_enabled": old_en,
+        "old_overlimit_buffer": old_buf,
+        "old_overlimit_fee": old_fee,
         "overlimit_enabled": account.overlimit_enabled,
         "overlimit_buffer": account.overlimit_buffer,
         "overlimit_fee": account.overlimit_fee

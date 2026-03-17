@@ -129,7 +129,7 @@ class CreditAccountAdminService:
         valid_transitions = {
             CCMAccountStatus.PENDING: [CCMAccountStatus.ACTIVE, CCMAccountStatus.CLOSED],
             CCMAccountStatus.ACTIVE: [CCMAccountStatus.SUSPENDED, CCMAccountStatus.FROZEN, CCMAccountStatus.DELINQUENT, CCMAccountStatus.CLOSED],
-            CCMAccountStatus.SUSPENDED: [CCMAccountStatus.ACTIVE, CCMAccountStatus.CLOSED],
+            CCMAccountStatus.SUSPENDED: [CCMAccountStatus.ACTIVE, CCMAccountStatus.FROZEN, CCMAccountStatus.CLOSED],
             CCMAccountStatus.FROZEN: [CCMAccountStatus.ACTIVE, CCMAccountStatus.SUSPENDED, CCMAccountStatus.CLOSED],
             CCMAccountStatus.DELINQUENT: [CCMAccountStatus.ACTIVE, CCMAccountStatus.SUSPENDED, CCMAccountStatus.CHARGED_OFF, CCMAccountStatus.CLOSED],
             CCMAccountStatus.CHARGED_OFF: [CCMAccountStatus.CLOSED],
@@ -173,7 +173,7 @@ class CreditAccountAdminService:
             new_status = CCMAccountStatus.FROZEN
         else:
             if old_status != CCMAccountStatus.FROZEN:
-                return account, "ACTIVE"
+                return account, old_status.value  # Return actual current status
             new_status = CCMAccountStatus.ACTIVE
             
         return CreditAccountAdminService.update_status(
@@ -187,36 +187,49 @@ class CreditAccountAdminService:
     @staticmethod
     def update_billing_cycle(db: Session, account_id: UUID, req: BillingCycleUpdateRequest):
         account = CreditAccountAdminService.get_account(db, account_id)
+        old_billing_cycle_day = account.billing_cycle_day
+        old_payment_due_days = account.payment_due_days
+        
         account.billing_cycle_day = req.billing_cycle_day
         account.payment_due_days = req.grace_period
         db.commit()
         db.refresh(account)
-        return account
+        return account, old_billing_cycle_day, old_payment_due_days
 
     @staticmethod
     def update_risk_flag(db: Session, account_id: UUID, req: RiskFlagUpdateRequest):
         account = CreditAccountAdminService.get_account(db, account_id)
+        old_risk_flag = account.risk_flag
+        
         account.risk_flag = req.risk_flag
         db.commit()
         db.refresh(account)
-        return account
+        return account, old_risk_flag
 
     @staticmethod
     def update_interest(db: Session, account_id: UUID, req: InterestUpdateRequest):
         account = CreditAccountAdminService.get_account(db, account_id)
+        old_purchase_apr = account.purchase_apr
+        old_cash_apr = account.cash_apr
+        old_penalty_apr = account.penalty_apr
+        
         account.purchase_apr = req.purchase_apr
         account.cash_apr = req.cash_apr
         account.penalty_apr = req.penalty_apr
         db.commit()
         db.refresh(account)
-        return account
+        return account, old_purchase_apr, old_cash_apr, old_penalty_apr
 
     @staticmethod
     def update_overlimit(db: Session, account_id: UUID, req: OverlimitConfigRequest):
         account = CreditAccountAdminService.get_account(db, account_id)
+        old_overlimit_enabled = account.overlimit_enabled
+        old_overlimit_buffer = account.overlimit_buffer
+        old_overlimit_fee = account.overlimit_fee
+        
         account.overlimit_enabled = req.overlimit_enabled
         account.overlimit_buffer = req.overlimit_buffer
         account.overlimit_fee = req.overlimit_fee
         db.commit()
         db.refresh(account)
-        return account
+        return account, old_overlimit_enabled, old_overlimit_buffer, old_overlimit_fee

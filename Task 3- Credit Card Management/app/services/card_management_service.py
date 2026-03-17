@@ -10,7 +10,7 @@ from fastapi import HTTPException, status
 from app.models.card_management import CCMCreditCard, CCMCreditAccount, CCMCardTransaction
 from app.models.customer import OTPCode, OTPPurpose
 from app.models.enums import (
-    CCMCardStatus, CardNetwork, CardVariant, CCMFraudBlockReason, 
+    CCMCardStatus, CCMAccountStatus, CardNetwork, CardVariant, CCMFraudBlockReason, 
     ActorType, CCMCommand, CCMReissueReason, CCMReissueType
 )
 from app.schemas.card_management import (
@@ -135,6 +135,8 @@ class CardManagementService:
 
         return {
             "message": "Activation initiated",
+            "old_status": card.status,
+            "new_status": card.status,
             "activation_id": activation_id,
             "card_id": card_id
         }
@@ -192,6 +194,8 @@ class CardManagementService:
 
         return {
             "message": "Card Activated & PIN Set Successfully",
+            "old_status": old_status,
+            "new_status": card.status,
             "activation_id": request.activation_id,
             "card_id": card_id
         }
@@ -420,7 +424,7 @@ class CardManagementService:
             **{"Delivery Address": request.delivery_address}
         )
         result = CardManagementService.replace_card(db, card_id, replace_req)
-        result["message"] = "🔄 Card Renewal Ordered"
+        result["message"] = "Card Renewal Ordered"
         return result
 
     # -------------------------------------------------

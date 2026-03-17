@@ -105,6 +105,8 @@ class CardIssuanceResponse(BaseModel):
 
 class CardActivationResponse(BaseModel):
     message: str = "Activation initiated"
+    old_status: CCMCardStatus
+    new_status: CCMCardStatus
     activation_id: uuid.UUID
     card_id: uuid.UUID
 

@@ -111,7 +111,7 @@ async def card_lifecycle_dispatcher(
     data: Union[
         CCMCardBlockRequest, CCMCardUnblockRequest, CCMCardReplaceRequest, 
         CCMCardTerminateRequest, CCMCardRenewRequest
-    ] = Body(..., example={ "reason": "LOST" }),
+    ],
     command: str = Query(..., description="Action to perform on the card: block, unblock_otp, unblock, replace, terminate, renew"),
     db: Session = Depends(get_db)
 ):

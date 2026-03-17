@@ -104,8 +104,9 @@ class CardIssuanceResponse(BaseModel):
     delivery: str = "In progress"
 
 class CardActivationResponse(BaseModel):
-    message: str
-    detail: Optional[str] = None
+    message: str = "Activation initiated"
+    activation_id: uuid.UUID
+    card_id: uuid.UUID
 
 class CardActionResponse(BaseModel):
     message: str

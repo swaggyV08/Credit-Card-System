@@ -134,14 +134,9 @@ class CardManagementService:
         activation_id = uuid.uuid4()
 
         return {
-            "message": "🔐 Activation initiated. Use this activation_id as linkage_id in the generic OTP endpoints.",
-            "detail": (
-                "Step 1: Call POST /auth/otp/generate with purpose=ACTIVATION and linkage_id=<activation_id>.\n"
-                "Step 2: Call POST /auth/otp/verify with purpose=ACTIVATION, linkage_id=<activation_id>, and otp=<code>.\n"
-                "Step 3: Call POST /cards/{card_id}/activate?command=activate with pin and activation_id."
-            ),
-            "activation_id": str(activation_id),
-            "card_id": str(card_id)
+            "message": "Activation initiated",
+            "activation_id": activation_id,
+            "card_id": card_id
         }
 
     # -------------------------------------------------
@@ -196,8 +191,9 @@ class CardManagementService:
         db.commit()
 
         return {
-            "message": "🎉 Card Activated & PIN Set Successfully",
-            "detail": "Your card is now ready for use."
+            "message": "Card Activated & PIN Set Successfully",
+            "activation_id": request.activation_id,
+            "card_id": card_id
         }
 
     # -------------------------------------------------

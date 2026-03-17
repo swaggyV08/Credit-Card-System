@@ -292,78 +292,100 @@ from app.schemas.auth import OTPGenerateRequest, OTPVerifyRequest
 from fastapi import Query, Request
 
 
-@router.post("/otp/generate/{linkage_id}")
-async def create_otp(
+from typing import Union
+
+@router.post("/otp/{linkage_id}")
+async def generic_otp_dispatcher(
     linkage_id: UUID,
-    data: OTPGenerateRequest,
+    data: Union[OTPGenerateRequest, OTPVerifyRequest],
+    command: str = Query(..., description="Action to perform: 'generate' or 'verify'"),
     db: Session = Depends(get_db)
 ):
     """
-    Creates a new OTP code tied to a linkage_id and prints it to the terminal.
-    """
-    otp = generate_otp()
-    otp_hash = hash_otp(otp)
-    expires_at = get_expiry_time()
-
-    # Clear old unused OTPs for the same purpose and linkage_id
-    db.query(OTPCode).filter(
-        OTPCode.purpose == data.purpose,
-        OTPCode.linkage_id == linkage_id,
-        OTPCode.is_used == False
-    ).update({"is_used": True})
-
-    otp_entry = OTPCode(
-        otp_hash=otp_hash,
-        purpose=data.purpose,
-        linkage_id=linkage_id,
-        expires_at=expires_at,
-        user_id=None,
-        email=None,
-        phone_number=None
-    )
-    db.add(otp_entry)
-    db.commit()
-
-    # PRINT TO TERMINAL
-    print("\n" + "="*50)
-    print(f"TERMINAL OTP GENERATED")
-    print(f"Linkage ID: {linkage_id}")
-    print(f"Purpose:    {data.purpose.value}")
-    print(f"OTP CODE:   {otp}")
-    print("="*50 + "\n")
+    Unified dispatcher for OTP operations using linkage_id as a unique session signature.
     
-    purpose_msg = data.purpose.value.lower().replace("_", " ")
-    return {
-        "message": f"{purpose_msg.capitalize()} OTP is generated successfully.",
-        "linkage_id": linkage_id,
-        "expires_at": expires_at.isoformat()
-    }
-
-
-@router.post("/otp/verify/{linkage_id}")
-async def verify_otp_endpoint(
-    linkage_id: UUID,
-    data: OTPVerifyRequest,
-    db: Session = Depends(get_db)
-):
+    Exactly why we are implementing this: Security mandates a stateless, linkage-protected 
+    OTP flow. By using a linkage_id, we ensure the OTP is strictly bound to a specific session 
+    or customer action, preventing cross-session injection and ensuring 100% auditability across 
+    the terminal and API.
+    
+    - `command=generate`: Creates a new OTP code and prints it to the terminal.
+    - `command=verify`: Validates the provided OTP code against the active linkage session.
     """
-    Validates the provided OTP code against the active linkage session.
-    """
-    otp_entry = db.query(OTPCode).filter(
-        OTPCode.purpose == data.purpose,
-        OTPCode.linkage_id == linkage_id,
-        OTPCode.is_used == False,
-        OTPCode.expires_at > datetime.now(timezone.utc)
-    ).order_by(OTPCode.created_at.desc()).first()
+    command = command.lower().strip()
+    raw_data = data.model_dump() if hasattr(data, "model_dump") else data
+    
+    if command == "generate":
+        try:
+            validated_data = OTPGenerateRequest.model_validate(raw_data)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=f"Validation error: {str(e)}")
+            
+        otp = generate_otp()
+        otp_hash = hash_otp(otp)
+        expires_at = get_expiry_time()
 
-    if not otp_entry or not verify_otp(data.otp, otp_entry.otp_hash):
-        raise HTTPException(status_code=400, detail="Invalid or expired OTP (Linkage Mismatch or Wrong Code)")
+        # Clear old unused OTPs for the same purpose and linkage_id
+        db.query(OTPCode).filter(
+            OTPCode.purpose == validated_data.purpose,
+            OTPCode.linkage_id == linkage_id,
+            OTPCode.is_used == False
+        ).update({"is_used": True})
 
-    otp_entry.is_verified = True 
-    db.commit()
+        otp_entry = OTPCode(
+            otp_hash=otp_hash,
+            purpose=validated_data.purpose,
+            linkage_id=linkage_id,
+            expires_at=expires_at,
+            user_id=None,
+            email=None,
+            phone_number=None
+        )
+        db.add(otp_entry)
+        db.commit()
 
-    purpose_msg = data.purpose.value.lower().replace("_", " ")
-    return {
-        "message": f"the {purpose_msg} otp is verified", 
-        "linkage_id": linkage_id
-    }
+        # PRINT TO TERMINAL
+        print("\n" + "="*50)
+        print(f"TERMINAL OTP GENERATED")
+        print(f"Linkage ID: {linkage_id}")
+        print(f"Purpose:    {validated_data.purpose.value}")
+        print(f"OTP CODE:   {otp}")
+        print("="*50 + "\n")
+        
+        purpose_msg = validated_data.purpose.value.lower().replace("_", " ")
+        return {
+            "message": f"{purpose_msg.capitalize()} OTP is generated successfully.",
+            "linkage_id": linkage_id,
+            "expires_at": expires_at.isoformat()
+        }
+
+    elif command == "verify":
+        try:
+            validated_data = OTPVerifyRequest.model_validate(raw_data)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=f"Validation error: {str(e)}")
+            
+        otp_entry = db.query(OTPCode).filter(
+            OTPCode.purpose == validated_data.purpose,
+            OTPCode.linkage_id == linkage_id,
+            OTPCode.is_used == False,
+            OTPCode.expires_at > datetime.now(timezone.utc)
+        ).order_by(OTPCode.created_at.desc()).first()
+
+        if not otp_entry or not verify_otp(validated_data.otp, otp_entry.otp_hash):
+            raise HTTPException(status_code=400, detail="Invalid or expired OTP (Linkage Mismatch or Wrong Code)")
+
+        otp_entry.is_verified = True 
+        db.commit()
+
+        purpose_msg = validated_data.purpose.value.lower().replace("_", " ")
+        return {
+            "message": f"the {purpose_msg} otp is verified", 
+            "linkage_id": linkage_id
+        }
+    
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid command '{command}'. Must be 'generate' or 'verify'."
+        )

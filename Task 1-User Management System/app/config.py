@@ -1,7 +1,0 @@
-SECRET_KEY = "353cb9277b370cb652c0cfc008b32774712cfd2a1b7b579b18c1f44b13b73f0d"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-
-DATABASE_URL = "postgresql://postgres:Rasenshuriken%401@localhost:5432/fintech_users"
-
-ADMIN_SECRET ="9d6a678054833e158d01deb660a3fe88bbceec5b003e9867f7fe9b85c8ca49fe"

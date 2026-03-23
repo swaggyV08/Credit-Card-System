@@ -1,0 +1,6 @@
+import subprocess
+result = subprocess.run(["pytest", "-v", "--tb=short"], capture_output=True, text=True, encoding='utf-8')
+print("STDOUT:")
+print(result.stdout)
+if result.stderr:
+    print("STDERR:", result.stderr)

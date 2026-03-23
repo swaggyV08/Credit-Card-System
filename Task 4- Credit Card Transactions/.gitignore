@@ -1,0 +1,30 @@
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Pytest / Coverage
+.pytest_cache/
+pytest.out
+*_log.txt
+*_out.txt
+*_errors.txt
+*_err.txt
+*.txt
+
+# Exclude some specific scripts generated for local runs
+test_output.txt
+script_error.txt
+pytest_results*.txt
+alembic_*.txt
+err*.txt
+log.txt

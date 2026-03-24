@@ -1,49 +1,10 @@
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Pytest / Coverage
-.pytest_cache/
-pytest.out
-*.log
-*.txt
-
-# Exclude some specific scripts generated for local runs
-test_ccm.db
-*.db
-tmp/
-uploads/
-
-# IDEs
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Project scratch scripts
-verify_*.py
-debug_*.py
-playground_*.py
-temp_*.py
-*.tmp
-test_openapi.py
-trace_import.py
-
-# Project specific ignores
-!requirements.txt
-!.gitignore
-!alembic.ini
-!README.md
-!alembic/
-!app/
-!tests/
+# Enforce 100% root-level hygiene
+/*
+!/requirements.txt
+!/.gitignore
+!/alembic.ini
+!/README.md
+!/alembic/
+!/app/
+!/tests/
+!/.env.example

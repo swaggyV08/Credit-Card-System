@@ -19,7 +19,37 @@ from app.api.v1.endpoints import card_management
 from app.admin.api import auth as admin_auth, credit_product, card_product, user_mgmt as admin_user_mgmt, credit_account_admin, transactions_admin
 from app.core.exceptions import BankGradeException
 
-app = FastAPI(title="ZBANQUe Credit Card System")
+description = """
+This REST API provides complete Credit Card Management functionality.
+
+### Core Modules:
+- **Customer Registration & Profile Management:** Handles new customer onboarding and personal/financial data.
+- **Credit Card Application Processing:** Manages the end-to-end application lifecycle.
+- **Underwriting & Risk Evaluation:** Automated scoring and decision-making for credit limits.
+- **Credit Card Account Management:** Administration of active credit accounts and cards.
+- **Transactions & Billing:** Real-time transaction ledgering and statement generation.
+- **Payments Processing:** Handling of repayments and account adjustments.
+- **Fraud & Compliance Monitoring:** KYC, FATCA, and risk logging.
+
+### Authentication Flow:
+1. **Registration:** Create a session using `/auth/registrations`.
+2. **OTP Verification:** Verify the session via `/auth/otp/{user_id}` with `command=verify`.
+3. **Login:** Obtain a JWT access token via `/auth/sessions/email`.
+4. **Authorize:** 
+    - Click the **Authorize** button in Swagger UI.
+    - Enter the token in the format: `Bearer <your_jwt_token>`.
+5. **Access Secured Endpoints:** All subsequent requests will include the Authorization header.
+
+*Note: All secured endpoints require a valid JWT token with appropriate role permissions.*
+"""
+
+app = FastAPI(
+    title="ZBANQUe Credit Card System",
+    description=description,
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 
 @app.exception_handler(BankGradeException)
 async def bank_grade_exception_handler(request: Request, exc: BankGradeException):

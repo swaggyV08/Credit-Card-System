@@ -8,3 +8,16 @@
 !/app/
 !/tests/
 !/.env.example
+
+# Global ignores for allowed directories
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.pytest_cache/
+.venv/
+venv/
+node_modules/
+.DS_Store
+*.log
+*.tmp

@@ -22,6 +22,7 @@ from app.core.security import (
 )
 from app.core.jwt import create_access_token
 from app.core.otp import generate_otp, hash_otp, verify_otp, get_expiry_time
+from app.schemas.auth import OTPDispatcherRequest
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 

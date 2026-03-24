@@ -40,7 +40,7 @@ from app.services.transactions.transaction_service import (
 # =====================================================
 # GROUP 1 — TRANSACTION INITIATION & AUTHORIZATION
 # =====================================================
-txn_router = APIRouter(prefix="/api/v1", tags=["Transactions"])
+txn_router = APIRouter(tags=["Transactions"])
 
 
 @txn_router.post(
@@ -210,7 +210,7 @@ def transition_transaction(
 # =====================================================
 # GROUP 2 — HOLDS MANAGEMENT
 # =====================================================
-hold_router = APIRouter(prefix="/api/v1", tags=["Holds"])
+hold_router = APIRouter(tags=["Holds"])
 
 
 @hold_router.get(
@@ -257,7 +257,7 @@ def release_hold(
 # =====================================================
 # GROUP 3 — CLEARING & SETTLEMENT
 # =====================================================
-clearing_router = APIRouter(prefix="/api/v1", tags=["Clearing & Settlement"])
+clearing_router = APIRouter(tags=["Clearing & Settlement"])
 
 
 @clearing_router.post(
@@ -348,7 +348,7 @@ def get_settlement_run(
 # =====================================================
 # GROUP 4 — DISPUTES & CHARGEBACKS
 # =====================================================
-dispute_router = APIRouter(prefix="/api/v1", tags=["Disputes"])
+dispute_router = APIRouter(tags=["Disputes"])
 
 
 @dispute_router.post(
@@ -473,7 +473,7 @@ def transition_dispute(
 # =====================================================
 # GROUP 5 — REFUNDS & REVERSALS
 # =====================================================
-refund_router = APIRouter(prefix="/api/v1", tags=["Refunds"])
+refund_router = APIRouter(tags=["Refunds"])
 
 
 @refund_router.post(

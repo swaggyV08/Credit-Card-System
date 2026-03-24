@@ -38,7 +38,7 @@ from app.services.transactions.operations_service import (
 # =====================================================
 # GROUP 6 — STATEMENTS
 # =====================================================
-stmt_router = APIRouter(prefix="/api/v1", tags=["Statements"])
+stmt_router = APIRouter(tags=["Statements"])
 
 
 @stmt_router.get(
@@ -95,14 +95,14 @@ def export_statement(
     return success_response({
         "export_job_id": str(export_job_id),
         "status": "QUEUED",
-        "poll_url": f"/api/v1/exports/{export_job_id}",
+        "poll_url": f"/exports/{export_job_id}",
     })
 
 
 # =====================================================
 # GROUP 7 — FEES & INTEREST
 # =====================================================
-fee_router = APIRouter(prefix="/api/v1", tags=["Fees & Interest"])
+fee_router = APIRouter(tags=["Fees & Interest"])
 
 
 @fee_router.get(
@@ -184,7 +184,7 @@ def post_interest(
 # =====================================================
 # GROUP 8 — PAYMENTS
 # =====================================================
-payment_router = APIRouter(prefix="/api/v1", tags=["Payments"])
+payment_router = APIRouter(tags=["Payments"])
 
 
 @payment_router.post(
@@ -266,7 +266,7 @@ def transition_payment(
 # =====================================================
 # GROUP 9 — LIMITS & CONTROLS
 # =====================================================
-controls_router = APIRouter(prefix="/api/v1", tags=["Card Controls"])
+controls_router = APIRouter(tags=["Card Controls"])
 
 
 @controls_router.get(
@@ -303,7 +303,7 @@ def update_controls(
 # =====================================================
 # GROUP 10 — FRAUD & RISK
 # =====================================================
-risk_router = APIRouter(prefix="/api/v1", tags=["Fraud & Risk"])
+risk_router = APIRouter(tags=["Fraud & Risk"])
 
 
 @risk_router.get(
@@ -377,7 +377,7 @@ def transition_risk_alert(
 # =====================================================
 # GROUP 11 — RECONCILIATION & AUDIT
 # =====================================================
-recon_router = APIRouter(prefix="/api/v1", tags=["Reconciliation & Audit"])
+recon_router = APIRouter(tags=["Reconciliation & Audit"])
 
 
 @recon_router.get(

@@ -38,6 +38,16 @@ from app.models import auth
 from app.models import admin
 from app.models import customer
 from app.models import enums
+# Transaction Processing System models
+from app.models.transactions import transactions as txn_models
+from app.models.transactions import clearing as clearing_models
+from app.models.transactions import settlement as settlement_models
+from app.models.transactions import disputes as dispute_models
+from app.models.transactions import payments as payment_models
+from app.models.transactions import fees as fee_models
+from app.models.transactions import controls as control_models
+from app.models.transactions import risk as risk_models
+from app.models.transactions import statements as statement_models
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

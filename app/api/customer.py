@@ -73,82 +73,237 @@ def generate_user_id(db: Session):
 
     return f"ZBNQ{new_number:08d}"
 
-# STAGE 1 — PERSONAL DETAILS
-@router.put("/cif/personal-details")
-def save_personal_details(
-    request: PersonalDetailsSchema,
+
+from app.schemas.auth import UnifiedCIFRequest
+
+# ==========================================
+# UNIFIED CIF ENDPOINT
+# ==========================================
+@router.put("/cif")
+def save_cif_unified(
+    request: UnifiedCIFRequest,
+    command: str = Query(
+        ..., 
+        description=(
+            "Action to perform on the CIF profile.\n"
+            "- 'personal_details': Updates personal data. Requires Personal_details block.\n"
+            "- 'resedential_details': Updates residential data. Requires Resedential_details block.\n"
+            "- 'employment_details': Updates employment data. Requires Employment_details block.\n"
+            "- 'financial_details': Updates financial data. Requires Financial_details block.\n"
+            "- 'fatca_details': Updates FATCA data. Requires Fatca_details block."
+        )
+    ),
     user: User = Depends(get_current_authenticated_user),
     db: Session = Depends(get_db)
 ):
-    if user.is_cif_completed:
-        raise HTTPException(
-            status_code=403,
-            detail="cif already completed"
-        )
-
-    # Age calculation from structured DOB
-    dob = request.date_of_birth.to_date()
-
-# Age calculation
-    today = date.today()
-    age = today.year - dob.year - (
-        (today.month, today.day) < (dob.month, dob.day)
-    )
-
-    if age < 18:
-        raise HTTPException(
-        status_code=403,
-        detail="Customer must be at least 18 years old"
-    )
-
-    if age > 100:
-        raise HTTPException(
-        status_code=400,
-        detail="Invalid age provided"
-    )
-
-    if calculate_age(dob) < 18:
-        raise HTTPException(status_code=403, detail="Applicant must be 18+")
-
-    if request.country_of_residence == Country.PAKISTAN or request.nationality == Country.PAKISTAN:
-        raise HTTPException(
-            status_code=403,
-            detail="You country residents arent allowed to create a account in my bank"
-        )
-
-    if request.country_of_residence.value in BLACKLISTED_COUNTRIES:
-        raise HTTPException(status_code=403, detail="Country not eligible")
-
-    profile = db.query(CustomerProfile).filter(
-        CustomerProfile.user_id == user.id
-    ).first()
-
-    if not profile:
-        profile = CustomerProfile(user_id=user.id)
-        db.add(profile)
-
-    pass
-
-    profile.nationality = request.nationality
-    profile.dual_citizenship = request.dual_citizenship
-    profile.country_of_residence = request.country_of_residence
-    profile.date_of_birth = dob
-    profile.gender = request.gender
-    profile.marital_status = request.marital_status
-    profile.preferred_language = request.preferred_language
+    """
+    A unified endpoint for capturing Customer Information File (CIF) data in precise, sequential stages.
     
-    # FATCA AUTO TRIGGER LOGIC
-    if (
-        request.nationality == Country.USA
-        or request.country_of_residence == Country.USA
-    ):
-        profile.fatca_required = True
-    else:
-        profile.fatca_required = False
+    ### How it Works
+    You must use the `command` query parameter to declare which lifecycle stage you are updating.
+    The payload must strictly contain only the object associated with the command. If other data is sent,
+    validation blocks the request.
+    
+    ### Required Chronological Order
+    1. `personal_details`
+    2. `resedential_details`
+    3. `employment_details`
+    4. `financial_details`
+    5. `fatca_details`
+    """
+    if user.is_cif_completed:
+        raise HTTPException(status_code=403, detail="cif already completed")
 
-    db.commit()
+    cmd = command.lower().strip()
+    valid_commands = [
+        "personal_details",
+        "resedential_details",
+        "employment_details",
+        "financial_details",
+        "fatca_details"
+    ]
 
-    return {"message": "Personal details saved"}
+    if cmd not in valid_commands:
+        raise HTTPException(status_code=400, detail="Invalid command")
+
+    has_personal = request.Personal_details is not None
+    has_residential = request.Resedential_details is not None
+    has_employment = request.Employment_details is not None
+    has_financial = request.Financial_details is not None
+    has_fatca = request.Fatca_details is not None
+
+    profile = db.query(CustomerProfile).filter(CustomerProfile.user_id == user.id).first()
+
+    if cmd == "personal_details":
+        if has_residential or has_employment or has_financial or has_fatca:
+            raise HTTPException(status_code=422, detail="only personal details needs to be entered ")
+        if not has_personal:
+            raise HTTPException(status_code=422, detail="Personal_details is required")
+
+        if profile and profile.nationality:
+            raise HTTPException(status_code=400, detail="already entered")
+        
+        if not profile:
+            profile = CustomerProfile(user_id=user.id)
+            db.add(profile)
+
+        data = request.Personal_details
+        dob = data.date_of_birth.to_date()
+        today = date.today()
+        age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+
+        if age < 18:
+            raise HTTPException(status_code=403, detail="Customer must be at least 18 years old")
+        if age > 100:
+            raise HTTPException(status_code=400, detail="Invalid age provided")
+            
+        if data.country_of_residence == Country.PAKISTAN or data.nationality == Country.PAKISTAN:
+            raise HTTPException(
+                status_code=403,
+                detail="You country residents arent allowed to create a account in my bank"
+            )
+
+        if data.country_of_residence.value in BLACKLISTED_COUNTRIES:
+            raise HTTPException(status_code=403, detail="Country not eligible")
+
+        profile.nationality = data.nationality
+        profile.dual_citizenship = data.dual_citizenship
+        profile.country_of_residence = data.country_of_residence
+        profile.date_of_birth = dob
+        profile.gender = data.gender
+        profile.marital_status = data.marital_status
+        profile.preferred_language = data.preferred_language
+        
+        if data.nationality == Country.USA or data.country_of_residence == Country.USA:
+            profile.fatca_required = True
+        else:
+            profile.fatca_required = False
+
+        db.commit()
+        return {"message": "Personal details saved"}
+
+    elif cmd == "resedential_details":
+        if has_personal or has_employment or has_financial or has_fatca:
+            raise HTTPException(status_code=422, detail="only resedential details needs to be entered ")
+        if not has_residential:
+            raise HTTPException(status_code=422, detail="Resedential_details is required")
+
+        if not profile:
+            raise HTTPException(status_code=400, detail="enter personal details first")
+
+        addr_exists = db.query(CustomerAddress).filter(CustomerAddress.customer_profile_id == profile.id).first()
+        if addr_exists:
+            raise HTTPException(status_code=400, detail="already entered")
+
+        data = request.Resedential_details
+        for addr in data.addresses:
+            new_address = CustomerAddress(
+                customer_profile_id=profile.id,
+                address_type=addr.type,
+                residence_type=addr.residence_type,
+                years_at_address=addr.years_at_address,
+                address_line_1=addr.line1,
+                address_line_2=addr.line2,
+                city=addr.city,
+                state=addr.state,
+                postal_code=addr.pincode,
+                country=addr.country,
+                is_kyc_verified=addr.is_kyc_verified,
+                same_as_current=addr.same_as_current,
+            )
+            db.add(new_address)
+        db.commit()
+        return {"message": "Resedential details saved"}
+
+    elif cmd == "employment_details":
+        if has_personal or has_residential or has_financial or has_fatca:
+            raise HTTPException(status_code=422, detail="only employment details needs to be entered ")
+        if not has_employment:
+            raise HTTPException(status_code=422, detail="Employment_details is required")
+
+        if not profile:
+            raise HTTPException(status_code=400, detail="enter personal details first")
+
+        addr_exists = db.query(CustomerAddress).filter(CustomerAddress.customer_profile_id == profile.id).first()
+        if not addr_exists:
+            raise HTTPException(status_code=400, detail="enter residential details first")
+
+        employment = db.query(EmploymentDetail).filter(EmploymentDetail.customer_profile_id == profile.id).first()
+        if employment:
+            raise HTTPException(status_code=400, detail="already entered")
+
+        employment = EmploymentDetail(customer_profile_id=profile.id)
+        db.add(employment)
+
+        data = request.Employment_details
+        employment.employment_type = data.employment_type
+        if data.organisation_name is not None:
+            employment.organisation_name = data.organisation_name
+        if data.designation is not None:
+            employment.designation = data.designation
+        employment.annual_income = data.annual_income
+
+        db.commit()
+        return {"message": "Employment details saved"}
+
+    elif cmd == "financial_details":
+        if has_personal or has_residential or has_employment or has_fatca:
+            raise HTTPException(status_code=422, detail="only financial details needs to be entered ")
+        if not has_financial:
+            raise HTTPException(status_code=422, detail="Financial_details is required")
+
+        if not profile:
+            raise HTTPException(status_code=400, detail="enter personal details first")
+
+        emp_exists = db.query(EmploymentDetail).filter(EmploymentDetail.customer_profile_id == profile.id).first()
+        if not emp_exists:
+            raise HTTPException(status_code=400, detail="enter employment details first")
+
+        financial = db.query(FinancialInformation).filter(FinancialInformation.customer_profile_id == profile.id).first()
+        if financial:
+            raise HTTPException(status_code=400, detail="already entered")
+
+        financial = FinancialInformation(customer_profile_id=profile.id)
+        db.add(financial)
+
+        data = request.Financial_details
+        financial.net_annual_income = data.net_annual_income
+        financial.monthly_income = data.monthly_income
+        financial.other_income = data.other_income
+        financial.housing_payment = data.housing_payment
+        financial.other_obligations = data.other_obligations
+
+        db.commit()
+        return {"message": "Financial details saved"}
+
+    elif cmd == "fatca_details":
+        if has_personal or has_residential or has_employment or has_financial:
+            raise HTTPException(status_code=422, detail="only fatca details needs to be entered ")
+        if not has_fatca:
+            raise HTTPException(status_code=422, detail="Fatca_details is required")
+
+        if not profile:
+            raise HTTPException(status_code=400, detail="enter personal details first")
+
+        fin_exists = db.query(FinancialInformation).filter(FinancialInformation.customer_profile_id == profile.id).first()
+        if not fin_exists:
+            raise HTTPException(status_code=400, detail="enter financial details first")
+
+        fatca = db.query(FATCADeclaration).filter(FATCADeclaration.customer_profile_id == profile.id).first()
+        if fatca:
+             raise HTTPException(status_code=400, detail="already entered")
+
+        fatca = FATCADeclaration(customer_profile_id=profile.id)
+        db.add(fatca)
+
+        data = request.Fatca_details
+        fatca.us_citizen = data.us_citizen
+        fatca.us_tax_resident = data.us_tax_resident
+        fatca.us_tin = data.us_tin
+
+        db.commit()
+        return {"message": "FATCA details saved"}
+
 
 # STAGE 1.5 - CIF SUMMARY
 @router.get("/cif/summary", response_model=CIFSummaryResponse)
@@ -221,219 +376,6 @@ def get_cif_summary(
         financial_information=financial,
         regulatory_flags=regulatory
     )
-
-# STAGE 2 — RESIDENTIAL DETAILS
-@router.put("/cif/residential-details")
-def save_residential_details(
-    request: ResidentialDetailsSchema,
-    user: User = Depends(get_current_authenticated_user),
-    db: Session = Depends(get_db)
-):
-    if user.is_cif_completed:
-        raise HTTPException(
-            status_code=403,
-            detail="cif already completed"
-        )
-
-    # Step 1: Get customer profile using user_id
-    profile = db.query(CustomerProfile).filter(
-        CustomerProfile.user_id == user.id
-    ).first()
-
-    if not profile:
-        raise HTTPException(
-            status_code=400,
-            detail="enter personal details first"
-        )
-
-    # Step 2: Delete existing addresses using customer_profile_id
-    db.query(CustomerAddress).filter(
-        CustomerAddress.customer_profile_id == profile.id
-    ).delete()
-
-    # Step 3: Iterate and add multiple addresses
-    for addr in request.addresses:
-        new_address = CustomerAddress(
-            customer_profile_id=profile.id,
-            address_type=addr.type,
-            residence_type=addr.residence_type,
-            years_at_address=addr.years_at_address,
-            address_line_1=addr.line1,
-            address_line_2=addr.line2,
-            city=addr.city,
-            state=addr.state,
-            postal_code=addr.pincode,
-            country=addr.country,
-            is_kyc_verified=addr.is_kyc_verified,
-            same_as_current=addr.same_as_current,
-        )
-        db.add(new_address)
-
-    db.commit()
-
-    return {"message": "Resedential details saved"}
-
-# STAGE 3 — EMPLOYMENT DETAILS
-@router.put("/cif/employment-details")
-def save_employment_details(
-    request: EmploymentDetailsSchema,
-    user: User = Depends(get_current_authenticated_user),
-    db: Session = Depends(get_db)
-):
-    if user.is_cif_completed:
-        raise HTTPException(
-            status_code=403,
-            detail="cif already completed"
-        )
-
-    # Step 1: Get profile using user_id
-    profile = db.query(CustomerProfile).filter(
-        CustomerProfile.user_id == user.id
-    ).first()
-
-    if not profile:
-        raise HTTPException(
-            status_code=400,
-            detail="enter personal details first"
-        )
-    
-    # Chronological check: Check if residential details exist
-    addr_exists = db.query(CustomerAddress).filter(CustomerAddress.customer_profile_id == profile.id).first()
-    if not addr_exists:
-        raise HTTPException(
-            status_code=400,
-            detail="enter residential details first"
-        )
-
-    # Step 2: Get employment using customer_profile_id
-    employment = db.query(EmploymentDetail).filter(
-        EmploymentDetail.customer_profile_id == profile.id
-    ).first()
-
-    # Step 3: Create if not exists
-    if not employment:
-        employment = EmploymentDetail(
-            customer_profile_id=profile.id
-        )
-        db.add(employment)
-
-    # Step 4: Update fields
-    employment.employment_type = request.employment_type
-    if request.organisation_name is not None:
-        employment.organisation_name = request.organisation_name
-    if request.designation is not None:
-        employment.designation = request.designation
-    employment.annual_income = request.annual_income
-
-    db.commit()
-
-    return {"message": "Employment details saved"}
-# STAGE 4 — FINANCIAL DETAILS
-@router.put("/cif/financial-details")
-def save_financial_details(
-    request: FinancialDetailsSchema,
-    user: User = Depends(get_current_authenticated_user),
-    db: Session = Depends(get_db)
-):
-    if user.is_cif_completed:
-        raise HTTPException(
-            status_code=403,
-            detail="cif already completed"
-        )
-
-    # Step 1: Get profile using user_id
-    profile = db.query(CustomerProfile).filter(
-        CustomerProfile.user_id == user.id
-    ).first()
-
-    if not profile:
-        raise HTTPException(
-            status_code=400,
-            detail="enter personal details first"
-        )
-    
-    # Chronological check: Check if employment details exist
-    emp_exists = db.query(EmploymentDetail).filter(EmploymentDetail.customer_profile_id == profile.id).first()
-    if not emp_exists:
-        raise HTTPException(
-            status_code=400,
-            detail="enter employment details first"
-        )
-
-    # Step 2: Get financial record using profile.id
-    financial = db.query(FinancialInformation).filter(
-        FinancialInformation.customer_profile_id == profile.id
-    ).first()
-
-    # Step 3: Create if not exists
-    if not financial:
-        financial = FinancialInformation(
-            customer_profile_id=profile.id
-        )
-        db.add(financial)
-
-    # Step 4: Update fields
-    financial.net_annual_income = request.net_annual_income
-    financial.monthly_income = request.monthly_income
-    financial.other_income = request.other_income
-    financial.housing_payment = request.housing_payment
-    financial.other_obligations = request.other_obligations
-
-    db.commit()
-
-    return {"message": "Financial details saved"}
-# STAGE 5 — FATCA DECLARATION
-@router.put("/cif/fatca-details")
-def save_fatca_details(
-    request: FATCADetailsSchema,
-    user: User = Depends(get_current_authenticated_user),
-    db: Session = Depends(get_db)
-):
-    if user.is_cif_completed:
-        raise HTTPException(
-            status_code=403,
-            detail="cif already completed"
-        )
-
-    # Step 1: Fetch customer profile
-    profile = db.query(CustomerProfile).filter(
-        CustomerProfile.user_id == user.id
-    ).first()
-
-    if not profile:
-        raise HTTPException(
-            status_code=400,
-            detail="enter personal details first"
-        )
-    
-    # Chronological check: Check if financial details exist
-    fin_exists = db.query(FinancialInformation).filter(FinancialInformation.customer_profile_id == profile.id).first()
-    if not fin_exists:
-        raise HTTPException(
-            status_code=400,
-            detail="enter financial details first"
-        )
-
-    # Step 2: Fetch existing FATCA record
-    fatca = db.query(FATCADeclaration).filter(
-        FATCADeclaration.customer_profile_id == profile.id
-    ).first()
-
-    # Step 3: Create if not exists
-    if not fatca:
-        fatca = FATCADeclaration(
-            customer_profile_id=profile.id
-        )
-        db.add(fatca)
-
-    # Step 4: Update fields
-    fatca.us_citizen = request.us_citizen
-    fatca.us_tax_resident = request.us_tax_resident
-    fatca.us_tin = request.us_tin
-
-    db.commit()
-
-    return {"message": "FATCA details saved"}
 
 @router.post("/cif")
 def submit_cif(

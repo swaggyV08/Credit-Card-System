@@ -288,7 +288,14 @@ class FATCADetailsSchema(BaseModel):
     us_citizen: bool = False
     us_tax_resident: bool = False
     us_tin: Optional[str] = None
-    
+
+class UnifiedCIFRequest(BaseModel):
+    Personal_details: Optional[PersonalDetailsSchema] = None
+    Resedential_details: Optional[ResidentialDetailsSchema] = None
+    Employment_details: Optional[EmploymentDetailsSchema] = None
+    Financial_details: Optional[FinancialDetailsSchema] = None
+    Fatca_details: Optional[FATCADetailsSchema] = None
+
 # SUMMARY ENDPOINT SCHEMAS
 class CifSummaryBasicProfile(BaseModel):
     full_name: Optional[str] = None

@@ -1,10 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from sqlalchemy.orm import Session
 from datetime import datetime, date
 from uuid import UUID
-from typing import List
+from typing import List, Literal, Optional
 
-from app.api.deps import get_db, get_current_authenticated_user, get_current_admin_user
+from app.api.deps import get_db
+from app.core.rbac import require, AuthenticatedPrincipal
+from app.schemas.base import envelope_success
+from app.core.app_error import AppError
+from app.services.cif_service import CIFService
 from app.models.auth import User
 from app.models.customer import CustomerProfile
 from app.admin.models.card_product import CardProductCore
@@ -30,34 +34,29 @@ router = APIRouter(prefix="/applications", tags=["Credit Card Applications"])
 
 # --- CUSTOMER ENDPOINTS ---
 
-@router.post("/", response_model=dict, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    summary="Submit New Application",
+    dependencies=[Depends(require("application:submit"))]
+)
 def submit_application(
     data: ApplicationCreateRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_authenticated_user)
+    principal: AuthenticatedPrincipal = Depends(require("application:submit"))
 ):
     """
     Submits a new credit card application for the current user.
-    
-    **Exactly why we are implementing this**:
-    To ensure banking-grade integrity, we assess the applicant's eligibility (Bureau, Fraud, Risk) 
-    *before* storing the application in our core ledger. This prevents 'dead' or 'rejected' 
-    records from bloating our database and ensures only qualified applications proceed to the KYC/Review stage.
-    
-    **Business Logic**:
-    1. **Normalization**: Fields like product code and employment status are converted to lower case.
-    2. **Preliminary Checks**: Validates CIF completeness and maximum card limits (max 3).
-    3. **Pre-Assessment**: Runs automated engines using dynamic product rules from the database.
-    4. **Zero-Storage Rejection**: If the applicant fails eligibility (e.g., low score), we return a 
-       clear human-readable rejection message and do *not* create a database record.
-    5. **Back-dating Protection**: Rejects any application with a date in the past.
     """
-    if not current_user.is_cif_completed or not current_user.is_kyc_completed:
-        raise HTTPException(status_code=400, detail="Incomplete Profile: You must complete CIF and KYC registration before applying for a credit card.")
+    user = db.query(User).filter(User.id == principal.user_id).first()
+    if not user:
+        raise AppError(code="NOT_FOUND", message="User not found", http_status=404)
+        
+    # CIF/KYC Gate Integration
+    CIFService.assert_cif_kyc_complete(user)
 
-    cif = db.query(CustomerProfile).filter(CustomerProfile.user_id == current_user.id).first()
+    cif = db.query(CustomerProfile).filter(CustomerProfile.user_id == user.id).first()
     if not cif:
-        raise HTTPException(status_code=400, detail="Customer Profile not found. Please ensure your account setup is complete.")
+        raise AppError(code="PROFILE_MISSING", message="Customer Profile not found. Please ensure your account setup is complete.", http_status=400)
         
     from app.admin.models.credit_product import CreditProductInformation
     
@@ -67,44 +66,45 @@ def submit_application(
     ).first()
     
     if not credit_product:
-        raise HTTPException(status_code=404, detail=f"Invalid Product: Credit product with code '{data.credit_product_code}' was not found in our catalog.")
+        raise AppError(code="INVALID_PRODUCT", message=f"Invalid Product: Credit product with code '{data.credit_product_code}' was not found in our catalog.", http_status=404)
 
-    # Pick the first associated card product
     card_product = db.query(CardProductCore).filter(
         CardProductCore.credit_product_id == credit_product.id
     ).first()
     
     if not card_product:
-        raise HTTPException(status_code=404, detail="Configuration Error: This credit product is currently unavailable for new card issuance.")
+        raise AppError(code="UNAVAILABLE", message="Configuration Error: This credit product is currently unavailable for new card issuance.", http_status=404)
 
     # 1. Limit Check (upto 3 credit cards)
-    account_count = db.query(CreditAccount).filter(CreditAccount.user_id == current_user.id).count()
+    account_count = db.query(CreditAccount).filter(CreditAccount.user_id == user.id).count()
     if account_count >= 3:
-        raise HTTPException(
-            status_code=400,
-            detail="Limit Reached: You are only eligible for up to 3 active credit cards across different products."
+        raise AppError(
+            code="LIMIT_REACHED",
+            message="Limit Reached: You are only eligible for up to 3 active credit cards across different products.",
+            http_status=400
         )
 
     # 2. Duplicate Check
     existing_app = db.query(CreditCardApplication).filter(
-        CreditCardApplication.user_id == current_user.id,
+        CreditCardApplication.user_id == user.id,
         CreditCardApplication.card_product_id == card_product.id,
         CreditCardApplication.application_status.in_([ApplicationStatus.SUBMITTED, ApplicationStatus.IN_REVIEW, ApplicationStatus.KYC_PENDING])
     ).first()
     
     if existing_app:
-        return {"message": "You have an existing application in progress for this product.", "application_id": existing_app.id}
+        return envelope_success({"message": "You have an existing application in progress for this product.", "application_id": str(existing_app.id)})
 
     # 3. EXISTING ACCOUNT CHECK
     existing_account = db.query(CreditAccount).filter(
-        CreditAccount.user_id == current_user.id,
+        CreditAccount.user_id == user.id,
         CreditAccount.card_product_id == card_product.id
     ).first()
     
     if existing_account:
-        raise HTTPException(
-            status_code=400,
-            detail="Ownership Conflict: Our records show you already hold an active credit account for this specific card product."
+        raise AppError(
+            code="OWNERSHIP_CONFLICT",
+            message="Ownership Conflict: Our records show you already hold an active credit account for this specific card product.",
+            http_status=400
         )
 
     # --- PRE-PERSISTENCE ASSESSMENT ---
@@ -113,14 +113,14 @@ def submit_application(
 
     if assessment["status"] == "REJECTED":
         # DO NOT STORE IN DB AS PER REQUIREMENT
-        return {
+        return envelope_success({
             "message": f"Application Rejected: {assessment['reason']}",
             "status": "REJECTED"
-        }
+        })
 
     # --- PERSISTENCE (ONLY FOR APPROVED) ---
     application = CreditCardApplication(
-        user_id=current_user.id,
+        user_id=user.id,
         credit_product_id=card_product.credit_product_id, 
         card_product_id=card_product.id,
         application_status=ApplicationStatus.SUBMITTED,
@@ -186,120 +186,153 @@ def submit_application(
     db.commit()
     db.refresh(application)
     
-    return {
+    return envelope_success({
         "message": "Application submitted successfully and passed initial eligibility checks.",
-        "application_id": application.id,
+        "application_id": str(application.id),
         "status": "SUBMITTED"
-    }
+    })
 
 
 # --- ADMIN ENDPOINTS (Consolidated) ---
 
-@router.get("/all", response_model=List[CreditCardApplicationSummary])
-def get_all_applications(
+@router.get(
+    "/",
+    summary="Get Applications",
+    dependencies=[Depends(require("application:read"))]
+)
+def get_applications(
+    command: Literal["all", "by_user"] = Query(..., description="Action to perform: 'all' or 'by_user'"),
+    user_id: Optional[UUID] = Query(None, description="Required for command=by_user"),
+    status_filter: Optional[ApplicationStatus] = Query(None, description="Filter by status"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    sort_order: Literal["asc", "desc"] = Query("desc"),
     db: Session = Depends(get_db),
-    admin: User = Depends(get_current_admin_user)
+    principal: AuthenticatedPrincipal = Depends(require("application:read"))
 ):
-    """
-    Fetch all credit applications setup for Admin Listing.
-    """
-    return db.query(CreditCardApplication).all()
-
-@router.get("/{application_id}", response_model=CreditCardApplicationResponse)
-def get_application_details(
-    application_id: UUID,
-    db: Session = Depends(get_db),
-    admin: User = Depends(get_current_admin_user)
-):
-    """
-    Fetch full details of an application.
-    """
-    from app.admin.services.issuance_svc import CardIssuanceService
-    
-    app = db.query(CreditCardApplication).filter(CreditCardApplication.id == application_id).first()
-    if not app:
-        raise HTTPException(status_code=404, detail="Application not found")
-    
-    # Auto-generate assessments if missing
-    bureau_report = db.query(BureauReport).filter(BureauReport.application_id == app.id).first()
-    if not bureau_report:
-        cif = db.query(CustomerProfile).filter(CustomerProfile.user_id == app.user_id).first()
-        assessment = CardIssuanceService.run_engines_pre_assessment(db, cif, app, app.credit_product)
-        
-        # Save generated assessments back to DB
-        new_bureau = BureauReport(
-            application_id=app.id,
-            bureau_score=assessment["bureau_data"]["bureau_score"],
-            report_reference_id=assessment["bureau_data"]["report_reference_id"],
-            bureau_snapshot=assessment["bureau_data"]["snapshot"]
-        )
-        db.add(new_bureau)
-        
-        for rule in assessment["fraud_rules"]:
-            f_flag = FraudFlag(
-                application_id=app.id,
-                flag_code=rule.code,
-                flag_description=rule.description,
-                severity=rule.severity
+    if command == "by_user":
+        if status_filter is not None or page != 1 or page_size != 20 or sort_order != "desc":
+            raise AppError(
+                code="INVALID_SIGNATURE",
+                message="Only user_id is accepted as input for command=by_user",
+                http_status=422
             )
-            db.add(f_flag)
+        if not user_id:
+            raise AppError(code="MISSING_USER_ID", message="user_id is required for command=by_user", http_status=422)
+
+        apps = db.query(CreditCardApplication).filter(CreditCardApplication.user_id == user_id).all()
+        
+        # Hydrate application details with assessments if needed
+        from app.admin.services.issuance_svc import CardIssuanceService
+        results = []
+        for app in apps:
+            bureau_report = db.query(BureauReport).filter(BureauReport.application_id == app.id).first()
+            if not bureau_report:
+                cif = db.query(CustomerProfile).filter(CustomerProfile.user_id == app.user_id).first()
+                if cif:
+                    assessment = CardIssuanceService.run_engines_pre_assessment(db, cif, app, app.credit_product)
+                    new_bureau = BureauReport(
+                        application_id=app.id,
+                        bureau_score=assessment["bureau_data"]["bureau_score"],
+                        report_reference_id=assessment["bureau_data"]["report_reference_id"],
+                        bureau_snapshot=assessment["bureau_data"]["snapshot"]
+                    )
+                    db.add(new_bureau)
+                    for rule in assessment["fraud_rules"]:
+                        db.add(FraudFlag(application_id=app.id, flag_code=rule.code, flag_description=rule.description, severity=rule.severity))
+                    db.add(RiskAssessment(application_id=app.id, risk_band=assessment["risk_assessment"]["band"], confidence_score=assessment["risk_assessment"]["confidence"], assessment_explanation=assessment["risk_assessment"]["explanation"]))
+                    db.commit()
             
-        new_risk = RiskAssessment(
-            application_id=app.id,
-            risk_band=assessment["risk_assessment"]["band"],
-            confidence_score=assessment["risk_assessment"]["confidence"],
-            assessment_explanation=assessment["risk_assessment"]["explanation"]
-        )
-        db.add(new_risk)
-        db.commit()
-    
-    return app
+            payload = CreditCardApplicationResponse.model_validate(app)
+            results.append(payload.model_dump(mode='json'))
+        
+        return envelope_success(results)
 
-@router.post("/{application_id}/evaluate")
-def evaluate_application(
-    application_id: UUID,
-    db: Session = Depends(get_db),
-    admin: User = Depends(get_current_admin_user)
+    elif command == "all":
+        query = db.query(CreditCardApplication)
+        if status_filter:
+            query = query.filter(CreditCardApplication.application_status == status_filter)
+        if sort_order == "desc":
+            query = query.order_by(CreditCardApplication.submitted_at.desc())
+        else:
+            query = query.order_by(CreditCardApplication.submitted_at.asc())
+            
+        total = query.count()
+        apps = query.offset((page - 1) * page_size).limit(page_size).all()
+        
+        items = [CreditCardApplicationSummary.model_validate(app).model_dump(mode='json') for app in apps]
+        return envelope_success({
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size
+        })
+
+
+@router.post(
+    "/{user_id}",
+    summary="Process Application (Evaluate/Configure)",
+    dependencies=[Depends(require("application:evaluate")), Depends(require("application:configure"))]
+)
+async def process_application(
+    user_id: UUID,
+    command: Literal["evaluate", "configure"] = Query(..., description="Action to perform on user's application"),
+    application_id: Optional[UUID] = Query(None, description="Required for evaluate/configure commands"),
+    request: Request = None,
+    db: Session = Depends(get_db)
 ):
     """
-    Automatically evaluate a Credit Card Application (after KYC review).
-    Transitions status from KYC_REVIEW to PENDING (for manual config) or REJECTED.
+    Unified endpoint to evaluate or configure an application.
+    - evaluate: run engines against an application
+    - configure: configure account and limits
     """
-    from app.admin.services.issuance_svc import CardIssuanceService
-    return CardIssuanceService.evaluate_application(db, application_id, admin.id)
-
-@router.post("/{application_id}/account", response_model=CreditAccountResponse)
-def configure_account(
-    application_id: UUID,
-    config: CreditAccountManualConfig,
-    db: Session = Depends(get_db),
-    admin: User = Depends(get_current_admin_user)
-):
-    """
-    Manually configure and provision a credit account for an APPROVED application.
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise AppError(code="NOT_FOUND", message="User not found", http_status=404)
+        
+    CIFService.assert_cif_kyc_complete(user)
     
-    **Billing Cycle IDs**:
-    - CYCLE_01: Statement on 1st of month
-    - CYCLE_05: Statement on 5th
-    - CYCLE_10: Statement on 10th
-    - CYCLE_15: Statement on 15th
-    - CYCLE_20: Statement on 20th
-    - CYCLE_25: Statement on 25th
-    - CYCLE_28: Statement on 28th
-    """
-    from app.admin.services.issuance_svc import CardIssuanceService
-    return CardIssuanceService.configure_and_create_account(db, application_id, config, admin.id)
+    if not application_id:
+        raise AppError(code="MISSING_APP_ID", message="application_id is required", http_status=422)
+
+    if command == "evaluate":
+        if request is not None:
+            body = await request.body()
+            if body and body.strip() not in (b"", b"null", b"{}"):
+                raise HTTPException(status_code=422, detail={
+                    "code": "NO_BODY_ACCEPTED",
+                    "message": "command=evaluate does not accept a request body. Remove the request body and try again."
+                })
+                
+        from app.admin.services.issuance_svc import CardIssuanceService
+        result = CardIssuanceService.evaluate_application(db, application_id, user_id)
+        return envelope_success(result)
+
+    elif command == "configure":
+        if request is None:
+            raise AppError(code="MISSING_BODY", message="Configuration body required", http_status=422)
+            
+        body = await request.json()
+        config = CreditAccountManualConfig(**body)
+        
+        from app.admin.services.issuance_svc import CardIssuanceService
+        account = CardIssuanceService.configure_and_create_account(db, application_id, config, user_id)
+        payload = CreditAccountResponse.model_validate(account)
+        return envelope_success(payload.model_dump(mode='json'))
 
 
-@router.post("/{credit_account_id}/card", response_model=CardResponse)
+@router.post(
+    "/{credit_account_id}/card",
+    summary="Issue Card",
+    dependencies=[Depends(require("application:issue_card"))]
+)
 def issue_card_for_account(
     credit_account_id: UUID,
     data: IssueCardRequest,
     db: Session = Depends(get_db),
-    admin: User = Depends(get_current_admin_user)
+    principal: AuthenticatedPrincipal = Depends(require("application:issue_card"))
 ):
-    """
-    Manually issue a card against an existing credit account.
-    """
     from app.admin.services.issuance_svc import CardIssuanceService
-    return CardIssuanceService.issue_card_manual(db, credit_account_id, data, admin.id)
+    card = CardIssuanceService.issue_card_manual(db, credit_account_id, data, principal.user_id)
+    payload = CardResponse.model_validate(card)
+    return envelope_success(payload.model_dump(mode='json'))

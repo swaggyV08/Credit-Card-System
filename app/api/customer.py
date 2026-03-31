@@ -6,7 +6,10 @@ import os
 import shutil
 from uuid import UUID
 from app.core.jwt import decode_access_token
-from app.api.deps import get_db, get_current_authenticated_user
+from app.api.deps import get_db
+from app.core.rbac import require, AuthenticatedPrincipal
+from app.schemas.base import envelope_success
+from app.core.app_error import AppError
 from app.models.auth import User
 from app.schemas.auth import (
     PersonalDetailsSchema,
@@ -50,7 +53,7 @@ router = APIRouter(prefix="/customers", tags=["Customer CIF"])
 def get_current_user(db: Session, user_id):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise AppError(code="NOT_FOUND", message="User not found", http_status=404)
     return user
 
 # HELPER — AGE CHECK
@@ -79,7 +82,11 @@ from app.schemas.auth import UnifiedCIFRequest
 # ==========================================
 # UNIFIED CIF ENDPOINT
 # ==========================================
-@router.put("/cif")
+@router.put(
+    "/cif",
+    summary="Update CIF Information (Staged)",
+    dependencies=[Depends(require("cif:write"))]
+)
 def save_cif_unified(
     request: UnifiedCIFRequest,
     command: str = Query(
@@ -93,7 +100,7 @@ def save_cif_unified(
             "- 'fatca_details': Updates FATCA data. Requires Fatca_details block."
         )
     ),
-    user: User = Depends(get_current_authenticated_user),
+    principal: AuthenticatedPrincipal = Depends(require("cif:write")),
     db: Session = Depends(get_db)
 ):
     """
@@ -111,8 +118,9 @@ def save_cif_unified(
     4. `financial_details`
     5. `fatca_details`
     """
+    user = get_current_user(db, principal.user_id)
     if user.is_cif_completed:
-        raise HTTPException(status_code=403, detail="cif already completed")
+        raise AppError(code="ALREADY_COMPLETED", message="CIF already completed", http_status=403)
 
     cmd = command.lower().strip()
     valid_commands = [
@@ -124,7 +132,7 @@ def save_cif_unified(
     ]
 
     if cmd not in valid_commands:
-        raise HTTPException(status_code=400, detail="Invalid command")
+        raise AppError(code="INVALID_COMMAND", message="Invalid command", http_status=400)
 
     has_personal = request.Personal_details is not None
     has_residential = request.Resedential_details is not None
@@ -136,12 +144,12 @@ def save_cif_unified(
 
     if cmd == "personal_details":
         if has_residential or has_employment or has_financial or has_fatca:
-            raise HTTPException(status_code=422, detail="only personal details needs to be entered ")
+            raise AppError(code="BAD_PAYLOAD", message="only personal details needs to be entered", http_status=422)
         if not has_personal:
-            raise HTTPException(status_code=422, detail="Personal_details is required")
+            raise AppError(code="BAD_PAYLOAD", message="Personal_details is required", http_status=422)
 
         if profile and profile.nationality:
-            raise HTTPException(status_code=400, detail="already entered")
+            raise AppError(code="ALREADY_ENTERED", message="already entered", http_status=400)
         
         if not profile:
             profile = CustomerProfile(user_id=user.id)
@@ -153,18 +161,15 @@ def save_cif_unified(
         age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
 
         if age < 18:
-            raise HTTPException(status_code=403, detail="Customer must be at least 18 years old")
+            raise AppError(code="UNDERAGE", message="Customer must be at least 18 years old", http_status=403)
         if age > 100:
-            raise HTTPException(status_code=400, detail="Invalid age provided")
+            raise AppError(code="INVALID_AGE", message="Invalid age provided", http_status=400)
             
         if data.country_of_residence == Country.PAKISTAN or data.nationality == Country.PAKISTAN:
-            raise HTTPException(
-                status_code=403,
-                detail="You country residents arent allowed to create a account in my bank"
-            )
+            raise AppError(code="GEO_RESTRICTION", message="You country residents arent allowed to create a account in my bank", http_status=403)
 
         if data.country_of_residence.value in BLACKLISTED_COUNTRIES:
-            raise HTTPException(status_code=403, detail="Country not eligible")
+            raise AppError(code="GEO_RESTRICTION", message="Country not eligible", http_status=403)
 
         profile.nationality = data.nationality
         profile.dual_citizenship = data.dual_citizenship
@@ -180,20 +185,20 @@ def save_cif_unified(
             profile.fatca_required = False
 
         db.commit()
-        return {"message": "Personal details saved"}
+        return envelope_success({"message": "Personal details saved"})
 
     elif cmd == "resedential_details":
         if has_personal or has_employment or has_financial or has_fatca:
-            raise HTTPException(status_code=422, detail="only resedential details needs to be entered ")
+            raise AppError(code="BAD_PAYLOAD", message="only resedential details needs to be entered", http_status=422)
         if not has_residential:
-            raise HTTPException(status_code=422, detail="Resedential_details is required")
+            raise AppError(code="BAD_PAYLOAD", message="Resedential_details is required", http_status=422)
 
         if not profile:
-            raise HTTPException(status_code=400, detail="enter personal details first")
+            raise AppError(code="PREREQUISITE_MISSING", message="enter personal details first", http_status=400)
 
         addr_exists = db.query(CustomerAddress).filter(CustomerAddress.customer_profile_id == profile.id).first()
         if addr_exists:
-            raise HTTPException(status_code=400, detail="already entered")
+            raise AppError(code="ALREADY_ENTERED", message="already entered", http_status=400)
 
         data = request.Resedential_details
         for addr in data.addresses:
@@ -213,24 +218,24 @@ def save_cif_unified(
             )
             db.add(new_address)
         db.commit()
-        return {"message": "Resedential details saved"}
+        return envelope_success({"message": "Resedential details saved"})
 
     elif cmd == "employment_details":
         if has_personal or has_residential or has_financial or has_fatca:
-            raise HTTPException(status_code=422, detail="only employment details needs to be entered ")
+            raise AppError(code="BAD_PAYLOAD", message="only employment details needs to be entered", http_status=422)
         if not has_employment:
-            raise HTTPException(status_code=422, detail="Employment_details is required")
+            raise AppError(code="BAD_PAYLOAD", message="Employment_details is required", http_status=422)
 
         if not profile:
-            raise HTTPException(status_code=400, detail="enter personal details first")
+            raise AppError(code="PREREQUISITE_MISSING", message="enter personal details first", http_status=400)
 
         addr_exists = db.query(CustomerAddress).filter(CustomerAddress.customer_profile_id == profile.id).first()
         if not addr_exists:
-            raise HTTPException(status_code=400, detail="enter residential details first")
+            raise AppError(code="PREREQUISITE_MISSING", message="enter residential details first", http_status=400)
 
         employment = db.query(EmploymentDetail).filter(EmploymentDetail.customer_profile_id == profile.id).first()
         if employment:
-            raise HTTPException(status_code=400, detail="already entered")
+            raise AppError(code="ALREADY_ENTERED", message="already entered", http_status=400)
 
         employment = EmploymentDetail(customer_profile_id=profile.id)
         db.add(employment)
@@ -244,24 +249,24 @@ def save_cif_unified(
         employment.annual_income = data.annual_income
 
         db.commit()
-        return {"message": "Employment details saved"}
+        return envelope_success({"message": "Employment details saved"})
 
     elif cmd == "financial_details":
         if has_personal or has_residential or has_employment or has_fatca:
-            raise HTTPException(status_code=422, detail="only financial details needs to be entered ")
+            raise AppError(code="BAD_PAYLOAD", message="only financial details needs to be entered", http_status=422)
         if not has_financial:
-            raise HTTPException(status_code=422, detail="Financial_details is required")
+            raise AppError(code="BAD_PAYLOAD", message="Financial_details is required", http_status=422)
 
         if not profile:
-            raise HTTPException(status_code=400, detail="enter personal details first")
+            raise AppError(code="PREREQUISITE_MISSING", message="enter personal details first", http_status=400)
 
         emp_exists = db.query(EmploymentDetail).filter(EmploymentDetail.customer_profile_id == profile.id).first()
         if not emp_exists:
-            raise HTTPException(status_code=400, detail="enter employment details first")
+            raise AppError(code="PREREQUISITE_MISSING", message="enter employment details first", http_status=400)
 
         financial = db.query(FinancialInformation).filter(FinancialInformation.customer_profile_id == profile.id).first()
         if financial:
-            raise HTTPException(status_code=400, detail="already entered")
+            raise AppError(code="ALREADY_ENTERED", message="already entered", http_status=400)
 
         financial = FinancialInformation(customer_profile_id=profile.id)
         db.add(financial)
@@ -274,24 +279,24 @@ def save_cif_unified(
         financial.other_obligations = data.other_obligations
 
         db.commit()
-        return {"message": "Financial details saved"}
+        return envelope_success({"message": "Financial details saved"})
 
     elif cmd == "fatca_details":
         if has_personal or has_residential or has_employment or has_financial:
-            raise HTTPException(status_code=422, detail="only fatca details needs to be entered ")
+            raise AppError(code="BAD_PAYLOAD", message="only fatca details needs to be entered", http_status=422)
         if not has_fatca:
-            raise HTTPException(status_code=422, detail="Fatca_details is required")
+            raise AppError(code="BAD_PAYLOAD", message="Fatca_details is required", http_status=422)
 
         if not profile:
-            raise HTTPException(status_code=400, detail="enter personal details first")
+            raise AppError(code="PREREQUISITE_MISSING", message="enter personal details first", http_status=400)
 
         fin_exists = db.query(FinancialInformation).filter(FinancialInformation.customer_profile_id == profile.id).first()
         if not fin_exists:
-            raise HTTPException(status_code=400, detail="enter financial details first")
+            raise AppError(code="PREREQUISITE_MISSING", message="enter financial details first", http_status=400)
 
         fatca = db.query(FATCADeclaration).filter(FATCADeclaration.customer_profile_id == profile.id).first()
         if fatca:
-             raise HTTPException(status_code=400, detail="already entered")
+             raise AppError(code="ALREADY_ENTERED", message="already entered", http_status=400)
 
         fatca = FATCADeclaration(customer_profile_id=profile.id)
         db.add(fatca)
@@ -302,18 +307,23 @@ def save_cif_unified(
         fatca.us_tin = data.us_tin
 
         db.commit()
-        return {"message": "FATCA details saved"}
+        return envelope_success({"message": "FATCA details saved"})
 
 
 # STAGE 1.5 - CIF SUMMARY
-@router.get("/cif/summary", response_model=CIFSummaryResponse)
+@router.get(
+    "/cif/summary",
+    summary="Get Consolidated CIF Summary",
+    dependencies=[Depends(require("cif:read"))]
+)
 def get_cif_summary(
-    user: User = Depends(get_current_authenticated_user),
+    principal: AuthenticatedPrincipal = Depends(require("cif:read")),
     db: Session = Depends(get_db)
 ):
+    user = get_current_user(db, principal.user_id)
     profile = db.query(CustomerProfile).filter(CustomerProfile.user_id == user.id).first()
     if not profile:
-        raise HTTPException(status_code=400, detail="Personal details missing")
+        raise AppError(code="PREREQUISITE_MISSING", message="Personal details missing", http_status=400)
 
     addresses = db.query(CustomerAddress).filter(CustomerAddress.customer_profile_id == profile.id).all()
     employment = db.query(EmploymentDetail).filter(EmploymentDetail.customer_profile_id == profile.id).first()
@@ -363,7 +373,7 @@ def get_cif_summary(
         us_tin=fatca.us_tin if fatca else None
     )
 
-    return CIFSummaryResponse(
+    payload = CIFSummaryResponse(
         user_id=user.id or "PENDING_SUBMIT",
         customer_type="INDIVIDUAL",
         customer_status=profile.customer_status,
@@ -376,26 +386,29 @@ def get_cif_summary(
         financial_information=financial,
         regulatory_flags=regulatory
     )
+    return envelope_success(payload.model_dump(mode='json'))
 
-@router.post("/cif")
+@router.post(
+    "/cif",
+    summary="Submit Completed CIF",
+    dependencies=[Depends(require("cif:write"))]
+)
 def submit_cif(
-    command: str,
-    user: User = Depends(get_current_authenticated_user),
+    command: str = Query(..., description="Action to perform. Only 'submit' is allowed."),
+    principal: AuthenticatedPrincipal = Depends(require("cif:write")),
     db: Session = Depends(get_db)
 ):
+    user = get_current_user(db, principal.user_id)
     if command != "submit":
-        raise HTTPException(status_code=400, detail="Invalid command")
+        raise AppError(code="INVALID_COMMAND", message="Invalid command", http_status=400)
 
     if user.is_cif_completed:
-        raise HTTPException(status_code=403, detail="cif already completed")
+        raise AppError(code="ALREADY_COMPLETED", message="cif already completed", http_status=403)
 
-
-    profile = db.query(CustomerProfile).filter(
-        CustomerProfile.user_id == user.id
-    ).first()
+    profile = db.query(CustomerProfile).filter(CustomerProfile.user_id == user.id).first()
 
     if not profile:
-        raise HTTPException(status_code=400, detail="Personal details missing")
+        raise AppError(code="PREREQUISITE_MISSING", message="Personal details missing", http_status=400)
 
     employment = db.query(EmploymentDetail).filter(
         EmploymentDetail.customer_profile_id == profile.id
@@ -410,7 +423,7 @@ def submit_cif(
     ).first()
 
     if not employment or not financial or not fatca:
-        raise HTTPException(status_code=400, detail="Complete all CIF sections")
+        raise AppError(code="INCOMPLETE_CIF", message="Complete all CIF sections", http_status=400)
 
     # Generate NEW User ID in ZBNQ format
     old_user_id = user.id
@@ -425,44 +438,43 @@ def submit_cif(
 
     db.commit()
 
-    return {
+    return envelope_success({
         "message": "CIF Submitted Successfully",
         "user_id": new_user_id
-    }
+    })
 
 
 
-@router.post("/kyc")
+@router.post(
+    "/kyc",
+    summary="Upload KYC Document",
+    dependencies=[Depends(require("kyc:conduct"))]
+)
 def conduct_kyc(
-    command: str,
-    document_type: str = Depends(lambda document_type: document_type),
-    document_number: str = Depends(lambda document_number: document_number),
+    command: str = Query(..., description="Action to perform. Only 'upload' is allowed."),
+    document_type: str = Query(..., description="PAN, AADHAAR, PASSPORT, VOTER_ID, DRIVING_LICENSE"),
+    document_number: str = Query(..., description="The ID number for the document"),
     file: UploadFile = File(...),
-    user: User = Depends(get_current_authenticated_user),
+    principal: AuthenticatedPrincipal = Depends(require("kyc:conduct")),
     db: Session = Depends(get_db)
 ):
+    user = get_current_user(db, principal.user_id)
     if not user.is_cif_completed:
-        raise HTTPException(
-            status_code=403,
-            detail="Complete CIF before starting KYC"
-        )
+        raise AppError(code="CIF_INCOMPLETE", message="Complete CIF before starting KYC", http_status=403)
     if user.is_kyc_completed:
-        raise HTTPException(
-            status_code=403,
-            detail="kyc already completed"
-        )
+        raise AppError(code="ALREADY_COMPLETED", message="kyc already completed", http_status=403)
     
     if command != "upload":
-        raise HTTPException(status_code=400, detail="Invalid command. Use 'upload' to start KYC.")
+        raise AppError(code="INVALID_COMMAND", message="Invalid command. Use 'upload' to start KYC.", http_status=400)
 
     profile = db.query(CustomerProfile).filter(CustomerProfile.user_id == user.id).first()
     if not profile:
-        raise HTTPException(status_code=400, detail="Profile not found. Complete personal details first.")
+        raise AppError(code="PROFILE_NOT_FOUND", message="Profile not found. Complete personal details first.", http_status=400)
 
     valid_doc_types = ["PAN", "AADHAAR", "PASSPORT", "VOTER_ID", "DRIVING_LICENSE"]
     doc_type_upper = document_type.upper()
     if doc_type_upper not in valid_doc_types:
-        raise HTTPException(status_code=400, detail=f"Invalid document type. Allowed: {valid_doc_types}")
+        raise AppError(code="INVALID_DOCUMENT", message=f"Invalid document type. Allowed: {valid_doc_types}", http_status=400)
 
     # IDEMPOTENCY: Check for existing submission for this document
     hashed_number = hash_value(document_number)
@@ -474,11 +486,11 @@ def conduct_kyc(
     if existing_sub:
         # Check if it's already verified or pending verification
         if existing_sub.verification_status == KYCVerificationStatus.VERIFIED or user.is_kyc_completed:
-             return {
+             return envelope_success({
                 "submission_id": str(existing_sub.id),
                 "status": "ALREADY_COMPLETED",
                 "message": "This document has already been verified."
-            }
+            })
         
         # If pending OTP, return existing
         existing_otp = db.query(KYCOTPVerification).filter(
@@ -488,23 +500,23 @@ def conduct_kyc(
         ).first()
 
         if existing_otp:
-             return {
+             return envelope_success({
                 "submission_id": str(existing_sub.id),
                 "status": "OTP_REQUIRED",
                 "message": "An active verification is already in progress for this document."
-            }
+            })
 
     # Validate file size (limit 5MB)
     file_size_limit = 5 * 1024 * 1024
     file.file.seek(0, 2)
     if file.file.tell() > file_size_limit:
-        raise HTTPException(status_code=400, detail="File too large. Maximum size is 5MB.")
+        raise AppError(code="FILE_TOO_LARGE", message="File too large. Maximum size is 5MB.", http_status=400)
     file.file.seek(0)
     
     valid_extensions = ["jpg", "jpeg", "png", "pdf"]
     ext = file.filename.split(".")[-1].lower()
     if ext not in valid_extensions:
-        raise HTTPException(status_code=400, detail=f"Invalid file type. Allowed: {valid_extensions}")
+        raise AppError(code="INVALID_EXTENSION", message=f"Invalid file type. Allowed: {valid_extensions}", http_status=400)
 
     # Process File
     upload_dir = os.path.join(os.getcwd(), "uploads", "kyc", str(user.id))
@@ -547,9 +559,9 @@ def conduct_kyc(
 
     db.commit()
 
-    return {
+    return envelope_success({
         "message": "KYC SUBMITTED"
-    }
+    })
 
 # ... KYC refactored ...
 
@@ -558,49 +570,56 @@ def conduct_kyc(
 # STAGE 5 — CONSOLIDATED CUSTOMER DATA
 from typing import Union, List
 
-@router.get("/{credit_account_id}", response_model=Union[UserProfileResponse, List[CustomerCardResponse], CustomerCreditAccountResponse])
+@router.get(
+    "/{credit_account_id}",
+    summary="Get Consolidated Customer Data",
+    dependencies=[Depends(require("customer:read"))]
+)
 def get_customer_data(
     credit_account_id: UUID,
     command: str = Query(..., description="commands: credit_account, credit_card, profile"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_authenticated_user)
+    principal: AuthenticatedPrincipal = Depends(require("customer:read"))
 ):
     """
     Consolidated GET endpoint to retrieve customer data.
     """
+    user = get_current_user(db, principal.user_id)
     # 1. Verify account ownership
     account = db.query(CreditAccount).filter(
         CreditAccount.id == credit_account_id,
-        CreditAccount.user_id == current_user.id
+        CreditAccount.user_id == user.id
     ).first()
     
     if not account:
-        raise HTTPException(
-            status_code=403, 
-            detail="Access Denied: This credit account does not belong to you or does not exist."
+        raise AppError(
+            code="FORBIDDEN", 
+            message="Access Denied: This credit account does not belong to you or does not exist.",
+            http_status=403
         )
 
     if command == "profile":
-        profile = db.query(CustomerProfile).filter(CustomerProfile.user_id == current_user.id).first()
+        profile = db.query(CustomerProfile).filter(CustomerProfile.user_id == user.id).first()
         if not profile:
-            raise HTTPException(status_code=404, detail="Customer Profile not found.")
+            raise AppError(code="PROFILE_NOT_FOUND", message="Customer Profile not found.", http_status=404)
         
-        return UserProfileResponse(
-            user_id=current_user.id,
-            email=current_user.email,
-            phone_number=current_user.phone_number,
-            is_cif_completed=current_user.is_cif_completed,
-            is_kyc_completed=current_user.is_kyc_completed,
+        payload = UserProfileResponse(
+            user_id=user.id,
+            email=user.email,
+            phone_number=user.phone_number,
+            is_cif_completed=user.is_cif_completed,
+            is_kyc_completed=user.is_kyc_completed,
             first_name=profile.first_name,
             last_name=profile.last_name,
             date_of_birth=profile.date_of_birth,
-            kyc_state=profile.kyc_state
+            kyc_state=profile.kyc_state.value if profile.kyc_state else None
         )
+        return envelope_success(payload.model_dump(mode='json'))
 
     elif command == "credit_card":
         # ALL cards belonging to the user
-        cards = db.query(Card).join(CreditAccount).filter(CreditAccount.user_id == current_user.id).all()
-        return [
+        cards = db.query(Card).join(CreditAccount).filter(CreditAccount.user_id == user.id).all()
+        payload = [
             CustomerCardResponse(
                 id=c.id,
                 card_readable_id=c.readable_id,
@@ -615,34 +634,41 @@ def get_customer_data(
                 atm_enabled=c.atm_enabled
             ) for c in cards
         ]
+        return envelope_success([p.model_dump(mode='json') for p in payload])
 
     elif command == "credit_account":
         # Details for the specific credit account in the path
-        return CustomerCreditAccountResponse(
+        payload = CustomerCreditAccountResponse(
             credit_account_id=account.id,
             user_id=account.user_id,
             credit_limit=account.credit_limit,
             available_limit=account.available_limit,
             outstanding_amount=account.outstanding_amount,
-            account_status=account.account_status,
+            account_status=account.account_status.value if hasattr(account.account_status, "value") else str(account.account_status),
             opened_at=account.opened_at
         )
+        return envelope_success(payload.model_dump(mode='json'))
 
     else:
-        raise HTTPException(
-            status_code=400, 
-            detail="Invalid Command: Supported are 'profile', 'credit_card', 'credit_account'."
+        raise AppError(
+            code="INVALID_COMMAND", 
+            message="Invalid Command: Supported are 'profile', 'credit_card', 'credit_account'.",
+            http_status=400
         )
 
 
 # ... card activation removed ...
 
-@router.post("/cards/{card_id}/set-pin")
+@router.post(
+    "/cards/{card_id}/set-pin",
+    summary="Set or update PIN",
+    dependencies=[Depends(require("customer:set_pin"))]
+)
 def set_card_pin(
     card_id: UUID,
     request: SetPinRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_authenticated_user)
+    principal: AuthenticatedPrincipal = Depends(require("customer:set_pin"))
 ):
     """
     Set or update the PIN for an active card.

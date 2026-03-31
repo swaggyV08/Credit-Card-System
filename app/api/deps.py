@@ -1,3 +1,9 @@
+"""
+Shared FastAPI dependencies.
+
+The canonical auth dependency is now `require(permission)` from `app.core.rbac`.
+These legacy wrappers are kept temporarily for modules not yet migrated.
+"""
 from fastapi import Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
@@ -9,8 +15,9 @@ from app.models.auth import User
 security = HTTPBearer()
 admin_security = OAuth2PasswordBearer(
     tokenUrl="/admin/auth/login/swagger",
-    scheme_name="AdminLogin"
+    scheme_name="AdminLogin",
 )
+
 
 def get_db():
     db = SessionLocal()
@@ -19,10 +26,14 @@ def get_db():
     finally:
         db.close()
 
+
+# ── Legacy wrappers — kept for backward compat until all modules migrated ──
+
 def get_current_authenticated_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
+    """Legacy: prefer ``require()`` from ``app.core.rbac``."""
     token = credentials.credentials
     payload = decode_access_token(token)
     user_id = payload.get("sub")
@@ -37,10 +48,12 @@ def get_current_authenticated_user(
 
     return user
 
+
 def get_current_admin_user(
     token: str = Depends(admin_security),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
+    """Legacy: prefer ``require()`` from ``app.core.rbac``."""
     payload = decode_access_token(token)
     admin_id = payload.get("sub")
 

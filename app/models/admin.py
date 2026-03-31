@@ -5,17 +5,15 @@ from sqlalchemy.sql import func
 from sqlalchemy import Enum as SQLEnum
 from app.db.base_class import Base
 
+from app.core.roles import Role
 
-from app.models.enums import Suffix
 
 class Admin(Base):
     __tablename__ = "admins"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    first_name = Column(String(100), nullable=False, server_default="System")
-    last_name = Column(String(100), nullable=False, server_default="Admin")
-    suffix = Column(SQLEnum(Suffix, native_enum=False), nullable=True)
+    full_name = Column(String(200), nullable=False, server_default="System Admin")
 
     email = Column(String(255), unique=True, nullable=False)
     country_code = Column(String(10), nullable=True)
@@ -23,6 +21,8 @@ class Admin(Base):
 
     password_hash = Column(String, nullable=False)
 
-    position = Column(String(100), nullable=True)
+    role = Column(SQLEnum(Role, native_enum=False), nullable=False, server_default=Role.MANAGER.value)
+    department = Column(String(100), nullable=True)
+    employee_id = Column(String(50), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())

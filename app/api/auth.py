@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from datetime import datetime,timezone
+from sqlalchemy import select
+from datetime import datetime, timezone
 from uuid import UUID
 
 from app.db.session import get_db
@@ -13,33 +14,48 @@ from app.schemas.auth import (
     CreatePasswordResetRequest,
     VerifyPasswordResetRequest,
     LoginEmailRequest,
-    AuthResponse
+    AuthResponse,
+    OTPDispatcherRequest,
 )
-from app.core.security import (
-    hash_value,
-    verify_value,
-    validate_password_rules
-)
+from app.core.security import hash_value, verify_value, validate_password_rules
 from app.core.jwt import create_access_token
 from app.core.otp import generate_otp, hash_otp, verify_otp, get_expiry_time
-from app.schemas.auth import OTPDispatcherRequest
+from app.core.rbac import require, AuthenticatedPrincipal
+from sqlalchemy import update
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-# CREATE REGISTRATION
-@router.post("/registrations", status_code=201)
+# ===================================================================
+# STEP 1 — CREATE REGISTRATION (public, no auth required)
+# ===================================================================
+@router.post(
+    "/registrations",
+    status_code=201,
+    summary="Step 1: Create registration",
+    description="""
+Starts the two-step registration process.
+
+1. Validates password rules and email uniqueness.
+2. Creates or updates a `PendingRegistration` record.
+3. Generates an OTP (printed to terminal in dev mode).
+4. Returns `registration_id` — use this as `user_id` in `/auth/otp/{user_id}?command=verify`.
+
+**No OTP is returned in the response** (security: OTP is delivered out-of-band).
+""",
+)
 def create_registration(
     data: CreateRegistrationRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-
     try:
         validate_password_rules(data.password)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    existing_user = db.execute(select(User).where(User.email == data.email)).scalar_one_or_none()
+    existing_user = db.execute(
+        select(User).where(User.email == data.email)
+    ).scalar_one_or_none()
     if existing_user:
         return {
             "registration_id": "ALREADY_REGISTERED",
@@ -47,8 +63,10 @@ def create_registration(
         }
 
     # IDEMPOTENCY: Check for existing pending registration
-    registration = db.execute(select(PendingRegistration).where(PendingRegistration.email == data.email)).scalar_one_or_none()
-    
+    registration = db.execute(
+        select(PendingRegistration).where(PendingRegistration.email == data.email)
+    ).scalar_one_or_none()
+
     otp = generate_otp()
     otp_hash = hash_otp(otp)
     expires_at = get_expiry_time()
@@ -84,35 +102,61 @@ def create_registration(
     }
 
 
-# ... registrations endpoints refactored ...
+# ===================================================================
+# LOGIN (EMAIL) — public, no auth required
+# ===================================================================
+@router.post(
+    "/sessions/email",
+    response_model=AuthResponse,
+    summary="Login via email",
+    description="""
+Authenticates a user via email/password and returns a JWT access token.
 
+The token contains: sub (user_id), type=USER, role=USER, exp, iat, jti.
 
-from sqlalchemy import select
-
-# LOGIN (EMAIL)
-@router.post("/sessions/email", response_model=AuthResponse)
+Response includes CIF/KYC completion status and latest application status.
+""",
+)
 def login_email(data: LoginEmailRequest, db: Session = Depends(get_db)):
-
-    user = db.execute(select(User).where(User.email == data.email)).scalar_one_or_none()
+    user = db.execute(
+        select(User).where(User.email == data.email)
+    ).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    credentials = db.execute(select(AuthCredential).where(
-        AuthCredential.user_id == user.id
-    )).scalar_one_or_none()
+    credentials = db.execute(
+        select(AuthCredential).where(AuthCredential.user_id == user.id)
+    ).scalar_one_or_none()
 
     if not verify_value(data.password, credentials.password_hash):
         raise HTTPException(status_code=401, detail="Invalid password")
 
-    token = create_access_token({"sub": str(user.id)})
+    token = create_access_token({
+        "sub": str(user.id),
+        "type": "USER",
+        "role": "USER",
+    })
 
-    name = f"{user.customer_profile.first_name} {user.customer_profile.last_name}" if user.customer_profile else "User"
+    name = (
+        f"{user.customer_profile.first_name} {user.customer_profile.last_name}"
+        if user.customer_profile
+        else "User"
+    )
 
     is_kyc_completed = user.is_kyc_completed if user.is_kyc_completed is not None else False
 
     from app.admin.models.card_issuance import CreditCardApplication
-    app = db.query(CreditCardApplication).filter(CreditCardApplication.user_id == user.id).first()
-    app_status = getattr(app.application_status, 'value', app.application_status) if app and app.application_status else None
+
+    app = (
+        db.query(CreditCardApplication)
+        .filter(CreditCardApplication.user_id == user.id)
+        .first()
+    )
+    app_status = (
+        getattr(app.application_status, "value", app.application_status)
+        if app and app.application_status
+        else None
+    )
 
     return {
         "access_token": token,
@@ -120,30 +164,40 @@ def login_email(data: LoginEmailRequest, db: Session = Depends(get_db)):
         "is_cif_completed": user.is_cif_completed,
         "is_kyc_completed": is_kyc_completed,
         "application_status": app_status,
-        "login_timestamp": datetime.now(timezone.utc).isoformat()
+        "login_timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
-# ... password reset requests moved to generic dispatcher ...
+# ===================================================================
+# PASSWORD RESET — requires pre-verified OTP
+# ===================================================================
+@router.patch(
+    "/passwords/{country_code}/{phone_number}",
+    summary="Reset password",
+    description="""
+Resets a user's password after OTP verification.
 
-@router.patch("/passwords/{country_code}/{phone_number}")
+**Prerequisite:** OTP must have been verified via the generic OTP dispatcher
+with purpose=PASSWORD_RESET.
+
+The endpoint checks for a verified, unused OTP before allowing the password change.
+""",
+)
 def verify_password_reset(
     country_code: str,
     phone_number: str,
     data: VerifyPasswordResetRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-
     if data.new_password != data.confirm_password:
         raise HTTPException(status_code=400, detail="Password mismatch")
 
     validate_password_rules(data.new_password)
 
     user = db.execute(
-        select(User)
-        .where(
+        select(User).where(
             User.country_code == country_code,
-            User.phone_number == phone_number
+            User.phone_number == phone_number,
         )
     ).scalar_one_or_none()
 
@@ -157,7 +211,7 @@ def verify_password_reset(
             OTPCode.user_id == user.id,
             OTPCode.purpose == OTPPurpose.PASSWORD_RESET,
             OTPCode.is_verified == True,
-            OTPCode.is_used == False
+            OTPCode.is_used == False,
         )
         .order_by(OTPCode.created_at.desc())
     ).scalar_one_or_none()
@@ -165,9 +219,9 @@ def verify_password_reset(
     if not otp_entry:
         raise HTTPException(status_code=400, detail="OTP not verified or already used.")
 
-    credentials = db.execute(select(AuthCredential).where(
-        AuthCredential.user_id == user.id
-    )).scalar_one_or_none()
+    credentials = db.execute(
+        select(AuthCredential).where(AuthCredential.user_id == user.id)
+    ).scalar_one_or_none()
 
     credentials.password_hash = hash_value(data.new_password)
     otp_entry.is_used = True
@@ -176,45 +230,72 @@ def verify_password_reset(
 
     return {"message": "Password updated successfully"}
 
-# GENERIC OTP DISPATCHER
-from sqlalchemy import update
 
-@router.post("/otp/{user_id}")
+# ===================================================================
+# GENERIC OTP DISPATCHER — handles generate + verify for all purposes
+# ===================================================================
+@router.post(
+    "/otp/{user_id}",
+    summary="OTP dispatcher",
+    description="""
+Unified dispatcher for OTP operations.
+
+**Commands** (query parameter):
+- `command=generate`: Creates a new OTP code and prints it to the terminal.
+- `command=verify`: Validates the provided OTP code.
+
+**Purposes** (in request body):
+- `REGISTRATION`: Use `registration_id` from Step 1 as `user_id`.
+   On verify, creates the User, CustomerProfile, AuthCredential, deletes PendingRegistration.
+- `PASSWORD_RESET`: Use user UUID or email/phone as `user_id`.
+- `UNBLOCK`: Use user UUID as `user_id`.
+
+**Two-step registration flow:**
+1. POST `/auth/registrations` → returns `registration_id`
+2. POST `/auth/otp/{registration_id}?command=generate` with purpose=REGISTRATION
+3. POST `/auth/otp/{registration_id}?command=verify` with purpose=REGISTRATION and OTP
+""",
+)
 async def generic_otp_dispatcher(
     user_id: str,
     data: OTPDispatcherRequest,
     command: str = Query(..., description="Action to perform: 'generate' or 'verify'"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """
-    Unified dispatcher for OTP operations.
-    - `command=generate`: Creates a new OTP code and prints it to the terminal.
-    - `command=verify`: Validates the provided OTP code.
-    """
     command = command.lower().strip()
-    
+
     # Resolve user context
     user = None
     registration = None
-    
+
     if data.purpose == OTPPurpose.REGISTRATION:
         try:
             reg_uuid = UUID(user_id)
-            registration = db.execute(select(PendingRegistration).where(PendingRegistration.id == reg_uuid)).scalar_one_or_none()
-        except:
-             registration = db.execute(select(PendingRegistration).where(PendingRegistration.email == user_id)).scalar_one_or_none()
-             
+            registration = db.execute(
+                select(PendingRegistration).where(PendingRegistration.id == reg_uuid)
+            ).scalar_one_or_none()
+        except Exception:
+            registration = db.execute(
+                select(PendingRegistration).where(PendingRegistration.email == user_id)
+            ).scalar_one_or_none()
+
         if not registration:
-             raise HTTPException(status_code=404, detail="Registration session not found")
+            raise HTTPException(
+                status_code=404, detail="Registration session not found"
+            )
     else:
         try:
             target_uuid = UUID(user_id)
-            user = db.execute(select(User).where(User.id == target_uuid)).scalar_one_or_none()
-        except:
-            user = db.execute(select(User).where(
-                (User.email == user_id) | (User.phone_number == user_id)
-            )).scalar_one_or_none()
-            
+            user = db.execute(
+                select(User).where(User.id == target_uuid)
+            ).scalar_one_or_none()
+        except Exception:
+            user = db.execute(
+                select(User).where(
+                    (User.email == user_id) | (User.phone_number == user_id)
+                )
+            ).scalar_one_or_none()
+
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
@@ -224,16 +305,17 @@ async def generic_otp_dispatcher(
         expires_at = get_expiry_time()
 
         # Clear old unused OTPs
-        stmt = update(OTPCode).where(
-            OTPCode.purpose == data.purpose,
-            OTPCode.is_used == False
-        ).values(is_used=True)
-        
+        stmt = (
+            update(OTPCode)
+            .where(OTPCode.purpose == data.purpose, OTPCode.is_used == False)
+            .values(is_used=True)
+        )
+
         if user:
             stmt = stmt.where(OTPCode.user_id == user.id)
         else:
             stmt = stmt.where(OTPCode.email == registration.email)
-            
+
         db.execute(stmt)
 
         otp_entry = OTPCode(
@@ -241,45 +323,49 @@ async def generic_otp_dispatcher(
             purpose=data.purpose,
             expires_at=expires_at,
             user_id=user.id if user else None,
-            email=registration.email if registration else None
+            email=registration.email if registration else None,
         )
         db.add(otp_entry)
         db.commit()
 
-        print("\n" + "="*50)
-        print(f"TERMINAL OTP GENERATED")
+        print("\n" + "=" * 50)
+        print("TERMINAL OTP GENERATED")
         print(f"Identifier: {user_id}")
         print(f"Purpose:    {data.purpose.value}")
         print(f"OTP CODE:   {otp}")
-        print("="*50 + "\n")
-        
+        print("=" * 50 + "\n")
+
         return {
             "message": f"{data.purpose.value.replace('_', ' ').capitalize()} OTP is generated successfully.",
-            "expires_at": expires_at.isoformat()
+            "expires_at": expires_at.isoformat(),
         }
 
     elif command == "verify":
         if not data.otp:
-            raise HTTPException(status_code=422, detail="Field 'otp' is mandatory for 'verify'")
-            
+            raise HTTPException(
+                status_code=422, detail="Field 'otp' is mandatory for 'verify'"
+            )
+
         stmt = select(OTPCode).where(
             OTPCode.purpose == data.purpose,
             OTPCode.is_used == False,
-            OTPCode.expires_at > datetime.now(timezone.utc)
+            OTPCode.expires_at > datetime.now(timezone.utc),
         )
-        
+
         if user:
             stmt = stmt.where(OTPCode.user_id == user.id)
         else:
             stmt = stmt.where(OTPCode.email == registration.email)
-            
-        otp_entry = db.execute(stmt.order_by(OTPCode.created_at.desc())).scalar_one_or_none()
+
+        otp_entry = db.execute(
+            stmt.order_by(OTPCode.created_at.desc())
+        ).scalar_one_or_none()
 
         if not otp_entry or not verify_otp(data.otp, otp_entry.otp_hash):
             raise HTTPException(status_code=400, detail="Invalid or expired OTP")
 
         otp_entry.is_verified = True
-        
+
         # Purpose-specific side effects
         if data.purpose == OTPPurpose.REGISTRATION:
             new_user = User(
@@ -288,21 +374,21 @@ async def generic_otp_dispatcher(
                 phone_number=registration.phone_number,
                 is_active=True,
                 is_cif_completed=False,
-                is_kyc_completed=False
+                is_kyc_completed=False,
             )
             db.add(new_user)
             db.flush()
-            
+
             profile = CustomerProfile(
                 user_id=new_user.id,
                 first_name=registration.first_name,
-                last_name=registration.last_name
+                last_name=registration.last_name,
             )
             db.add(profile)
-            
+
             credentials = AuthCredential(
                 user_id=new_user.id,
-                password_hash=hash_value(registration.password)
+                password_hash=hash_value(registration.password),
             )
             db.add(credentials)
             db.delete(registration)
@@ -315,7 +401,9 @@ async def generic_otp_dispatcher(
             return {"message": "the unblock otp is verified"}
 
         db.commit()
-        return {"message": f"the {data.purpose.value.lower().replace('_', ' ')} otp is verified"}
-    
+        return {
+            "message": f"the {data.purpose.value.lower().replace('_', ' ')} otp is verified"
+        }
+
     else:
         raise HTTPException(status_code=400, detail="Invalid command")

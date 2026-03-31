@@ -2,70 +2,108 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
-from app.api.deps import get_db, get_current_admin_user
+
+from app.api.deps import get_db
 from app.models.admin import Admin
-from app.schemas.admin import AdminCreate, AdminEmailLogin, AdminResponse, TokenResponse, AdminCreationResponse
+from app.schemas.admin import AdminCreate, AdminEmailLogin, TokenResponse, AdminCreationResponse
 from app.core.security import hash_value, verify_value, validate_password_rules
 from app.core.jwt import create_access_token
+from app.core.roles import Role
+from app.core.rbac import require, AuthenticatedPrincipal
+from app.schemas.base import envelope_success
 
 router = APIRouter(prefix="/auth", tags=["Admin: Authentication"])
 
-@router.post("/login/email", response_model=TokenResponse)
+
+@router.post(
+    "/login/email",
+    response_model=TokenResponse,
+    summary="Admin login via email",
+    description="""
+Authenticates an admin user and returns a JWT access token.
+
+The token contains: sub (admin_id), role, jti, exp, iat, token_type=ADMIN.
+
+Accessible by: ADMIN, MANAGER, SALES
+""",
+)
 def login_admin_email(data: AdminEmailLogin, db: Session = Depends(get_db)):
     admin = db.query(Admin).filter(Admin.email == data.email).first()
     if not admin:
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    
+
     if not verify_value(data.password, admin.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    
-    full_name = f"{admin.first_name} {admin.last_name}"
-    access_token = create_access_token({"sub": str(admin.id)})
+
+    role_value = admin.role.value if hasattr(admin.role, "value") else str(admin.role)
+    access_token = create_access_token({
+        "sub": str(admin.id),
+        "type": "ADMIN",
+        "role": role_value,
+    })
     return {
-        "access_token": access_token, 
+        "access_token": access_token,
         "token_type": "bearer",
-        "message": f"Welcome Admin: {full_name}",
-        "login_timestamp": datetime.now(timezone.utc).isoformat()
+        "message": f"Welcome Admin: {admin.full_name}",
+        "login_timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
-
-@router.post("/login/swagger", response_model=TokenResponse, include_in_schema=False)
+@router.post(
+    "/login/swagger",
+    response_model=TokenResponse,
+    include_in_schema=False,
+)
 def login_admin_swagger(
     form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """
-    This endpoint is used specifically for the Swagger UI 'Authorize' button which sends form data.
-    """
+    """Swagger UI 'Authorize' button endpoint (sends form data)."""
     admin = db.query(Admin).filter(Admin.email == form_data.username).first()
     if not admin:
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    
+
     if not verify_value(form_data.password, admin.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    
-    full_name = f"{admin.first_name} {admin.last_name}"
-    access_token = create_access_token({"sub": str(admin.id)})
+
+    role_value = admin.role.value if hasattr(admin.role, "value") else str(admin.role)
+    access_token = create_access_token({
+        "sub": str(admin.id),
+        "type": "ADMIN",
+        "role": role_value,
+    })
     return {
-        "access_token": access_token, 
+        "access_token": access_token,
         "token_type": "bearer",
-        "message": f"Welcome Admin: {full_name}",
-        "login_timestamp": datetime.now(timezone.utc).isoformat()
+        "message": f"Welcome Admin: {admin.full_name}",
+        "login_timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
-@router.post("/admins", response_model=AdminCreationResponse, status_code=status.HTTP_201_CREATED)
+
+@router.post(
+    "/admins",
+    response_model=AdminCreationResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create admin account",
+    description="""
+Creates a new admin user. Only ADMIN role can create other admins.
+
+**Request body:**
+- email: valid email address
+- password: minimum 12 characters, bcrypt hashed
+- full_name: admin's full name
+- role: ADMIN | MANAGER | SALES (never USER)
+- department: optional
+- employee_id: optional
+
+Accessible by: ADMIN only
+""",
+)
 def add_admin(
     data: AdminCreate,
-    current_admin: Admin = Depends(get_current_admin_user),
-    db: Session = Depends(get_db)
+    principal: AuthenticatedPrincipal = Depends(require("admin:create")),
+    db: Session = Depends(get_db),
 ):
-    """
-    Only existing admins can add another admin.
-    """
-    if data.password != data.confirm_password:
-        raise HTTPException(status_code=400, detail="Password mismatch")
-
     try:
         validate_password_rules(data.password)
     except ValueError as e:
@@ -74,29 +112,27 @@ def add_admin(
     existing_admin = db.query(Admin).filter(Admin.email == data.email).first()
     if existing_admin:
         raise HTTPException(status_code=400, detail="Admin with this email already exists")
-    
+
+    if data.role == Role.USER:
+        raise HTTPException(status_code=400, detail="Cannot assign USER role to an Admin")
+
     hashed_password = hash_value(data.password)
-    
+
     new_admin = Admin(
-        first_name=data.first_name,
-        last_name=data.last_name,
-        suffix=data.suffix,
+        full_name=data.full_name,
         email=data.email,
-        country_code=data.contact.country_code if data.contact else None,
-        phone_number=data.contact.phone_number if data.contact else None,
-        position=data.position,
-        password_hash=hashed_password
+        role=data.role,
+        department=data.department,
+        employee_id=data.employee_id,
+        password_hash=hashed_password,
     )
-    
+
     db.add(new_admin)
     db.commit()
     db.refresh(new_admin)
-    
-    new_admin_name = f"{new_admin.first_name} {new_admin.last_name}"
-    current_admin_name = f"{current_admin.first_name} {current_admin.last_name}"
-    
+
     return {
-        "admin": f"{new_admin_name} added successfully",
+        "admin": f"{new_admin.full_name} added successfully",
         "created_at": new_admin.created_at or datetime.now(timezone.utc),
-        "created_by": current_admin_name
+        "created_by": principal.user_id,
     }

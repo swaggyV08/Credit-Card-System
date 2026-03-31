@@ -17,7 +17,6 @@ from app.api.deps import get_db, get_current_authenticated_user
 from app.models.transactions.transactions import TransactionAuditLog as AuditLog
 from app.models.transactions.fees import Fee
 from app.models.transactions.payments import Payment
-from app.models.transactions.risk import RiskAlert
 from app.models.transactions.statements import Statement
 from app.schemas.transactions.envelope import success_response, paginated_response
 from app.schemas.transactions.operations import (
@@ -26,12 +25,11 @@ from app.schemas.transactions.operations import (
     FeeSchema, CreateFeeRequest, FeeWaiveRequest, InterestPostRequest,
     CreatePaymentRequest, PaymentSchema, PaymentCommandRequest,
     CardControlSchema, UpdateCardControlRequest,
-    RiskAlertSchema, RiskAlertCommandRequest,
     AuditLogSchema,
 )
 from app.services.transactions.operations_service import (
     StatementService, FeeService, PaymentService,
-    ControlsService, RiskService, ReconciliationService,
+    ControlsService, ReconciliationService,
 )
 
 
@@ -300,78 +298,7 @@ def update_controls(
     return success_response(data)
 
 
-# =====================================================
-# GROUP 10 — FRAUD & RISK
-# =====================================================
-risk_router = APIRouter(tags=["Fraud & Risk"])
 
-
-@risk_router.get(
-    "/transactions/{txn_id}/risk",
-    summary="Get Transaction Risk Signals",
-    description="Returns full fraud/risk signals for a transaction including fraud score, risk tier, and rules triggered.",
-)
-def get_transaction_risk(
-    txn_id: uuid.UUID,
-    user=Depends(get_current_authenticated_user),
-    db: Session = Depends(get_db),
-):
-    data = RiskService.get_transaction_risk(db, txn_id)
-    return success_response(data)
-
-
-@risk_router.get(
-    "/risk/alerts",
-    summary="List Risk Alerts",
-    description="Lists open fraud/risk alerts requiring review with status and risk tier filters.",
-)
-def list_risk_alerts(
-    status: str | None = None,
-    risk_tier: str | None = None,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    user=Depends(get_current_authenticated_user),
-    db: Session = Depends(get_db),
-):
-    alerts = RiskService.list_alerts(db, status, risk_tier)
-    total = len(alerts)
-    paginated = alerts[(page - 1) * page_size : page * page_size]
-    data = [RiskAlertSchema.model_validate(a).model_dump() for a in paginated]
-    return paginated_response(data, total, page, page_size)
-
-
-@risk_router.patch(
-    "/risk/alerts/{alert_id}",
-    summary="Risk Alert Workflow",
-    description="""
-Risk alert review workflow:
-- `review` — Mark as reviewed with outcome (TRUE_POSITIVE, FALSE_POSITIVE, INCONCLUSIVE)
-- `dismiss` — False positive dismissal
-- `escalate` — Escalate to senior risk officer
-""",
-)
-def transition_risk_alert(
-    alert_id: uuid.UUID,
-    command: str = Query(..., description="review | dismiss | escalate"),
-    body: RiskAlertCommandRequest = None,
-    user=Depends(get_current_authenticated_user),
-    db: Session = Depends(get_db),
-):
-    body = body or RiskAlertCommandRequest()
-    if command == "review":
-        if not body.review_outcome:
-            raise HTTPException(status_code=422, detail="review_outcome is required")
-        alert = RiskService.review_alert(db, alert_id, body.review_outcome.value, actor_id=user.id)
-    elif command == "dismiss":
-        alert = RiskService.dismiss_alert(db, alert_id, actor_id=user.id)
-    elif command == "escalate":
-        if not body.assigned_to:
-            raise HTTPException(status_code=422, detail="assigned_to is required for escalation")
-        alert = RiskService.escalate_alert(db, alert_id, body.assigned_to, actor_id=user.id)
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown command: '{command}'")
-    data = RiskAlertSchema.model_validate(alert).model_dump()
-    return success_response(data)
 
 
 # =====================================================

@@ -3,44 +3,41 @@ from uuid import UUID
 from datetime import datetime
 from typing import Optional
 
-from app.schemas.auth import ContactSchema
-from app.models.enums import Suffix
+from app.core.roles import Role
 
-class AdminBase(BaseModel):
+
+class AdminCreate(BaseModel):
     email: EmailStr
-    position: Optional[str] = None
-    first_name: str = Field(..., alias="first name")
-    last_name: str = Field(..., alias="last name")
-    suffix: Optional[Suffix] = None
+    password: str = Field(..., min_length=12, description="Minimum 12 characters")
+    full_name: str = Field(..., min_length=2)
+    role: Role = Role.MANAGER
+    department: Optional[str] = None
+    employee_id: Optional[str] = None
 
-    @field_validator("suffix", mode="before")
-    def empty_string_to_none(cls, v):
-        if v == "":
-            return None
-        return v
-
-class AdminCreate(AdminBase):
-    contact: ContactSchema
-    password: str
-    confirm_password: str = Field(..., alias="confirm password")
 
 class AdminEmailLogin(BaseModel):
     email: EmailStr
     password: str
 
 
-class AdminResponse(AdminBase):
+class AdminResponse(BaseModel):
     id: UUID
-    contact_info: Optional[ContactSchema] = None
+    email: EmailStr
+    full_name: str
+    role: Role
+    department: Optional[str] = None
+    employee_id: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
 
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     message: str
     login_timestamp: str
+
 
 class AdminCreationResponse(BaseModel):
     admin: str

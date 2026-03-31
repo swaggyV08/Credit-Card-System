@@ -346,10 +346,28 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_dispute_evidence_dispute_id'), 'dispute_evidence', ['dispute_id'], unique=False)
+    # --- UUID→VARCHAR migration: drop ALL FKs on users.id first ---
+    op.drop_constraint('auth_credentials_user_id_fkey', 'auth_credentials', type_='foreignkey')
+    op.execute("ALTER TABLE otp_codes DROP CONSTRAINT IF EXISTS otp_codes_user_id_fkey")
+    op.execute("ALTER TABLE customer_profiles DROP CONSTRAINT IF EXISTS customer_profiles_user_id_fkey")
+    op.execute("ALTER TABLE ccm_credit_accounts DROP CONSTRAINT IF EXISTS ccm_credit_accounts_user_id_fkey")
+    op.execute("ALTER TABLE ccm_credit_cards DROP CONSTRAINT IF EXISTS ccm_credit_cards_user_id_fkey")
+    op.execute("ALTER TABLE credit_account DROP CONSTRAINT IF EXISTS credit_account_user_id_fkey")
+    op.execute("ALTER TABLE credit_card_application DROP CONSTRAINT IF EXISTS credit_card_application_user_id_fkey")
+
+    # Change users.id PK first (the referenced column)
+    op.alter_column('users', 'id',
+               existing_type=sa.UUID(),
+               type_=sa.String(length=20),
+               existing_nullable=False,
+               postgresql_using="id::varchar")
+
+    # Now change all referencing columns
     op.alter_column('auth_credentials', 'user_id',
                existing_type=sa.UUID(),
                type_=sa.String(length=20),
-               nullable=False)
+               nullable=False,
+               postgresql_using="user_id::varchar")
     op.alter_column('auth_credentials', 'password_updated_at',
                existing_type=postgresql.TIMESTAMP(timezone=True),
                nullable=False,
@@ -465,7 +483,8 @@ def upgrade() -> None:
     op.alter_column('credit_card_application', 'user_id',
                existing_type=sa.UUID(),
                type_=sa.String(length=20),
-               existing_nullable=False)
+               existing_nullable=False,
+               postgresql_using="user_id::varchar")
     op.drop_constraint(op.f('credit_card_application_cif_id_fkey'), 'credit_card_application', type_='foreignkey')
     op.drop_column('credit_card_application', 'cif_id')
     op.alter_column('customer_addresses', 'customer_profile_id',
@@ -487,7 +506,10 @@ def upgrade() -> None:
     op.alter_column('customer_profiles', 'user_id',
                existing_type=sa.UUID(),
                type_=sa.String(length=20),
-               nullable=False)
+               nullable=False,
+               postgresql_using="user_id::varchar")
+    # Re-create customer_profiles FK after both columns are varchar
+    op.create_foreign_key('customer_profiles_user_id_fkey', 'customer_profiles', 'users', ['user_id'], ['id'])
     op.alter_column('customer_profiles', 'dual_citizenship',
                existing_type=sa.VARCHAR(length=3),
                nullable=False)
@@ -580,7 +602,10 @@ def upgrade() -> None:
     op.alter_column('otp_codes', 'user_id',
                existing_type=sa.UUID(),
                type_=sa.String(length=20),
-               existing_nullable=True)
+               existing_nullable=True,
+               postgresql_using="user_id::varchar")
+    # Re-create otp_codes FK after both columns are varchar
+    op.create_foreign_key('otp_codes_user_id_fkey', 'otp_codes', 'users', ['user_id'], ['id'])
     op.alter_column('otp_codes', 'is_used',
                existing_type=sa.BOOLEAN(),
                nullable=False)
@@ -602,10 +627,8 @@ def upgrade() -> None:
                existing_type=postgresql.TIMESTAMP(timezone=True),
                nullable=False,
                existing_server_default=sa.text('now()'))
-    op.alter_column('users', 'id',
-               existing_type=sa.UUID(),
-               type_=sa.String(length=20),
-               existing_nullable=False)
+    # Re-create auth_credentials FK after both columns are varchar
+    op.create_foreign_key('auth_credentials_user_id_fkey', 'auth_credentials', 'users', ['user_id'], ['id'])
     op.alter_column('users', 'is_active',
                existing_type=sa.BOOLEAN(),
                nullable=False)

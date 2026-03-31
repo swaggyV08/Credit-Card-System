@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, ConfigDict
 
 from app.models.transactions.enums import (
     FeeType, PaymentSource, StatementStatus, ExportFormat,
-    RiskAlertStatus, ReviewOutcome, LineItemType,
+    LineItemType,
 )
 
 
@@ -173,39 +173,7 @@ class UpdateCardControlRequest(BaseModel):
     allowed_countries: list[str] | None = None
 
 
-# =====================================================
-# GROUP 10 — RISK SCHEMAS
-# =====================================================
-class RiskSignalSchema(BaseModel):
-    fraud_score: float
-    risk_tier: str
-    rules_triggered: list | None
-    reviewed_by: str | None
-    review_outcome: str | None
 
-    model_config = ConfigDict(from_attributes=True)
-
-
-class RiskAlertSchema(BaseModel):
-    id: UUID
-    transaction_id: UUID
-    card_id: UUID
-    risk_tier: str
-    fraud_score: float
-    rules_triggered: list | None
-    status: str
-    assigned_to: str | None
-    review_outcome: str | None
-    reviewed_at: datetime | None
-    created_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class RiskAlertCommandRequest(BaseModel):
-    review_outcome: ReviewOutcome | None = None
-    reason: str | None = None
-    assigned_to: str | None = None
 
 
 # =====================================================

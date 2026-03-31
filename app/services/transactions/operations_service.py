@@ -14,14 +14,13 @@ from app.admin.models.card_issuance import Card, CreditAccount
 from app.models.transactions.transactions import Transaction, CreditHold, TransactionAuditLog as AuditLog
 from app.models.transactions.fees import Fee
 from app.models.transactions.payments import Payment
-from app.models.transactions.controls import CardControl, CardControlHistory
-from app.models.transactions.risk import RiskAlert
-from app.models.transactions.statements import Statement, StatementLineItem
 from app.models.transactions.enums import (
     TransactionType, TransactionStatus, HoldStatus,
     FeeType, PaymentStatus, StatementStatus,
-    RiskAlertStatus, ReviewOutcome, AuditAction,
+    AuditAction,
 )
+from app.models.transactions.controls import CardControl, CardControlHistory
+from app.models.transactions.statements import Statement
 
 
 def _utcnow() -> datetime:
@@ -340,71 +339,7 @@ class ControlsService:
         return ctrl
 
 
-# =====================================================
-# GROUP 10 — RISK SERVICE
-# =====================================================
-class RiskService:
 
-    @staticmethod
-    def get_transaction_risk(db: Session, txn_id: uuid.UUID):
-        alert = db.query(RiskAlert).filter(RiskAlert.transaction_id == txn_id).first()
-        txn = db.query(Transaction).filter(Transaction.id == txn_id).first()
-        if not txn:
-            raise HTTPException(status_code=404, detail="Transaction not found")
-        return {
-            "fraud_score": txn.fraud_score or 0.0,
-            "risk_tier": txn.risk_tier or "LOW",
-            "rules_triggered": alert.rules_triggered if alert else [],
-            "reviewed_by": alert.assigned_to if alert else None,
-            "review_outcome": alert.review_outcome if alert else None,
-        }
-
-    @staticmethod
-    def list_alerts(db: Session, status: str | None = None, risk_tier: str | None = None):
-        query = db.query(RiskAlert)
-        if status:
-            query = query.filter(RiskAlert.status == status)
-        if risk_tier:
-            query = query.filter(RiskAlert.risk_tier == risk_tier)
-        return query.order_by(RiskAlert.created_at.desc()).all()
-
-    @staticmethod
-    def review_alert(db: Session, alert_id: uuid.UUID, outcome: str, actor_id: str | None = None) -> RiskAlert:
-        alert = db.query(RiskAlert).filter(RiskAlert.id == alert_id).first()
-        if not alert:
-            raise HTTPException(status_code=404, detail="Risk alert not found")
-        alert.status = RiskAlertStatus.REVIEWED.value
-        alert.review_outcome = outcome
-        alert.reviewed_at = _utcnow()
-        _write_audit(db, "RISK_ALERT", str(alert.id), AuditAction.RISK_ALERT_REVIEWED.value, actor_id=actor_id)
-        db.commit()
-        db.refresh(alert)
-        return alert
-
-    @staticmethod
-    def dismiss_alert(db: Session, alert_id: uuid.UUID, actor_id: str | None = None) -> RiskAlert:
-        alert = db.query(RiskAlert).filter(RiskAlert.id == alert_id).first()
-        if not alert:
-            raise HTTPException(status_code=404, detail="Risk alert not found")
-        alert.status = RiskAlertStatus.DISMISSED.value
-        alert.review_outcome = ReviewOutcome.FALSE_POSITIVE.value
-        alert.reviewed_at = _utcnow()
-        _write_audit(db, "RISK_ALERT", str(alert.id), AuditAction.RISK_ALERT_DISMISSED.value, actor_id=actor_id)
-        db.commit()
-        db.refresh(alert)
-        return alert
-
-    @staticmethod
-    def escalate_alert(db: Session, alert_id: uuid.UUID, assigned_to: str, actor_id: str | None = None) -> RiskAlert:
-        alert = db.query(RiskAlert).filter(RiskAlert.id == alert_id).first()
-        if not alert:
-            raise HTTPException(status_code=404, detail="Risk alert not found")
-        alert.status = RiskAlertStatus.ESCALATED.value
-        alert.assigned_to = assigned_to
-        _write_audit(db, "RISK_ALERT", str(alert.id), AuditAction.RISK_ALERT_ESCALATED.value, actor_id=actor_id)
-        db.commit()
-        db.refresh(alert)
-        return alert
 
 
 # =====================================================

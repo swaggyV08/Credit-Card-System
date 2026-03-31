@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy import select, update
@@ -227,8 +229,30 @@ def verify_password_reset(
 # ===================================================================
 @router.post(
     "/otp/{user_id}",
-    summary="OTP dispatcher",
-    description="Unified dispatcher for OTP operations.",
+    summary="OTP dispatcher — generate or verify",
+    description="""
+**Unified OTP endpoint for all OTP operations.**
+
+Supports two commands via `?command=` query parameter:
+
+### `command=generate`
+- Dispatches a new 6-digit OTP to the user (via SMS/email).
+- Invalidates any previous unused OTPs for the same purpose.
+- The OTP value is **never** returned in the response.
+- Supported purposes: `REGISTRATION`, `PASSWORD_RESET`, `CARD_ACTIVATION`, `KYC_VERIFICATION`.
+
+### `command=verify`
+- Verifies an OTP that was previously dispatched.
+- Requires `otp` field in the request body.
+- For `purpose=REGISTRATION`: on success, returns `"message": "REGISTRATION COMPLETE"` and transitions user from UNVERIFIED → ACTIVE.
+- For `purpose=PASSWORD_RESET`: marks OTP as verified; use PATCH `/auth/passwords/{country_code}/{phone_number}` to set new password.
+
+**Error Codes:**
+- `422 UNPROCESSABLE` — OTP field missing, expired, or invalid.
+- `404 NOT_FOUND` — User not found.
+
+**Accessible by:** Public (no auth required).
+""",
 )
 async def generic_otp_dispatcher(
     user_id: str,

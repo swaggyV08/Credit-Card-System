@@ -11,6 +11,8 @@ if os.name == 'nt':
     except Exception:
         pass
 
+from datetime import datetime, timezone
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -22,6 +24,7 @@ from app.api import customer, application
 from app.api.v1.endpoints import card_management
 from app.admin.api import credit_product, card_product, user_mgmt as admin_user_mgmt, credit_account_admin
 from app.core.exceptions import BankGradeException
+from app.core.app_error import AppError
 
 description = """
 This REST API provides complete Credit Card Management functionality.
@@ -65,43 +68,84 @@ app.add_middleware(
     allow_headers=["*", "Idempotency-Key", "X-Request-ID"]
 )
 
+def _envelope_error(status_code: int, message: str, code: str | None = None, errors: list | None = None):
+    """Build a ResponseEnvelope-shaped error response."""
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": "error",
+            "data": None,
+            "meta": {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+            "errors": errors or [
+                {
+                    "code": code or f"HTTP_{status_code}",
+                    "message": message,
+                }
+            ],
+        },
+    )
+
+
+@app.exception_handler(AppError)
+async def app_error_handler(request: Request, exc: AppError):
+    return _envelope_error(
+        status_code=exc.status_code,
+        message=exc.message,
+        code=exc.code,
+    )
+
+
 @app.exception_handler(BankGradeException)
 async def bank_grade_exception_handler(request: Request, exc: BankGradeException):
-    # Ensure banking-grade errors are human readable
-    return JSONResponse(
+    return _envelope_error(
         status_code=exc.status_code,
-        content={"message": f"{exc.message} (Code: {exc.code})"}
+        message=exc.message,
+        code=exc.code,
     )
+
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    # Detailed human-readable validation error
     error_details = []
     for error in exc.errors():
         field = ".".join(str(loc) for loc in error["loc"] if loc != "body")
         msg = error["msg"]
-        error_details.append(f"Field '{field}' {msg}")
-    
-    human_message = "Validation Error: " + "; ".join(error_details)
+        error_details.append({"code": "VALIDATION_ERROR", "message": f"Field '{field}': {msg}"})
     return JSONResponse(
         status_code=422,
-        content={"message": human_message}
+        content={
+            "status": "error",
+            "data": None,
+            "meta": {"timestamp": datetime.now(timezone.utc).isoformat()},
+            "errors": error_details,
+        },
     )
+
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    return JSONResponse(
+    code = None
+    message = str(exc.detail)
+    if isinstance(exc.detail, dict):
+        code = exc.detail.get("code")
+        message = exc.detail.get("message", str(exc.detail))
+    return _envelope_error(
         status_code=exc.status_code,
-        content={"message": str(exc.detail)}
+        message=message,
+        code=code,
     )
+
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
     import traceback
-    print(traceback.format_exc()) # Log it for internal use
-    return JSONResponse(
+    print(traceback.format_exc())
+    return _envelope_error(
         status_code=500,
-        content={"message": f"An unhandled internal error occurred: {str(exc)}"}
+        message="An unhandled internal error occurred.",
+        code="INTERNAL_ERROR",
     )
 
 app.include_router(new_auth.router)

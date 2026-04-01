@@ -17,9 +17,7 @@ from app.models.enums import CCMCommand
 router = APIRouter()
 issue_router = APIRouter()
 
-# =====================================================
 # 1. ISSUE CARD: POST /{credit_account_id}/card
-# =====================================================
 @issue_router.post("/{credit_account_id}/card", status_code=status.HTTP_201_CREATED,
              response_model=CardIssuanceResponse)
 def issue_card_endpoint(
@@ -47,9 +45,7 @@ def issue_card_endpoint(
         )
 
 
-# =====================================================
 # 2. ACTIVATE CARD: POST /cards/{card_id}/activate
-# =====================================================
 @router.post("/{card_id}/activate", response_model=CardActivationResponse)
 async def activate_card_dispatcher(
     card_id: uuid.UUID,
@@ -102,9 +98,7 @@ async def activate_card_dispatcher(
         )
 
 
-# =====================================================
-# 3-7. CARD LIFECYCLE DISPATCHER: POST /cards/{card_id}
-# =====================================================
+# CARD LIFECYCLE DISPATCHER: POST /cards/{card_id}
 @router.post("/{card_id}", response_model=CardActionResponse)
 async def card_lifecycle_dispatcher(
     card_id: uuid.UUID,
@@ -181,14 +175,12 @@ async def card_lifecycle_dispatcher(
         )
 
 
-# =====================================================
 # UTILITY ENDPOINTS
-# =====================================================
 
-@router.get("/{card_id}/transactions", response_model=List[CCMCardTransactionResponse])
-def get_card_transactions(card_id: uuid.UUID, db: Session = Depends(get_db)):
-    """Retrieves the transaction history for a card."""
-    return CardManagementService.get_card_transactions(db, card_id)
+#@router.get("/{card_id}/transactions", response_model=List[CCMCardTransactionResponse])
+#def get_card_transactions(card_id: uuid.UUID, db: Session = Depends(get_db)):
+  #  """Retrieves the transaction history for a card."""
+   # return CardManagementService.get_card_transactions(db, card_id)
 
 
 @router.get("/{card_id}", response_model=CCMCreditCardResponse)

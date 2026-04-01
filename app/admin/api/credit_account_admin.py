@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query, Path
 from sqlalchemy.orm import Session
 from uuid import UUID
 from typing import Optional, List
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from app.api import deps
 from app.admin.schemas.credit_account_admin import (
@@ -106,7 +106,7 @@ def update_credit_account_unified(
             "new_credit_limit": account.credit_limit,
             "available_credit": account.available_credit,
             "updated_by": admin.id,
-            "updated_at": datetime.now()
+            "updated_at": datetime.now(timezone.utc)
         }
         
     elif command == AdminAccountCommand.STATUS:
@@ -115,7 +115,7 @@ def update_credit_account_unified(
             "credit_account_id": account.id,
             "previous_status": old_status,
             "new_status": account.status,
-            "updated_at": datetime.now()
+            "updated_at": datetime.now(timezone.utc)
         }
         
     elif command == AdminAccountCommand.FREEZE:
@@ -124,13 +124,13 @@ def update_credit_account_unified(
             "credit_account_id": account.id,
             "freeze_status": "FROZEN" if req.freeze.freeze else "ACTIVE",
             "reason_code": req.freeze.reason_code,
-            "updated_at": datetime.now()
+            "updated_at": datetime.now(timezone.utc)
         }
         
     elif command == AdminAccountCommand.BILLING_CYCLE:
         account, old_day, old_grace = CreditAccountAdminService.update_billing_cycle(db, credit_account_id, req.billing_cycle)
         # Simple projection for next statement date (fictional logic for response)
-        next_date = datetime.now() + timedelta(days=30)
+        next_date = datetime.now(timezone.utc) + timedelta(days=30)
         return {
             "credit_account_id": account.id,
             "old_billing_cycle_day": old_day,
@@ -146,7 +146,7 @@ def update_credit_account_unified(
             "credit_account_id": account.id,
             "old_risk_flag": old_risk,
             "new_risk_flag": account.risk_flag,
-            "updated_at": datetime.now()
+            "updated_at": datetime.now(timezone.utc)
         }
         
     elif command == AdminAccountCommand.INTEREST:

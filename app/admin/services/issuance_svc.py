@@ -472,7 +472,7 @@ class CardIssuanceService:
         encrypted_pan = f"encrypt({pan})" # Placeholder for real encryption
         masked_pan = f"{str(pan)[:6]}XXXXXX{str(pan)[-4:]}"
         
-        expiry_date = (datetime.now() + timedelta(days=5*365)).strftime("%m/%y")
+        expiry_date = (datetime.now(timezone.utc) + timedelta(days=5*365)).strftime("%m/%y")
         expiry_date_masked = f"XX/{expiry_date.split('/')[1]}"
         
         cvv = str(random.randint(100, 999))

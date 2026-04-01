@@ -347,7 +347,7 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_dispute_evidence_dispute_id'), 'dispute_evidence', ['dispute_id'], unique=False)
     # --- UUID→VARCHAR migration: drop ALL FKs on users.id first ---
-    op.drop_constraint('auth_credentials_user_id_fkey', 'auth_credentials', type_='foreignkey')
+    op.execute("ALTER TABLE auth_credentials DROP CONSTRAINT IF EXISTS auth_credentials_user_id_fkey")
     op.execute("ALTER TABLE otp_codes DROP CONSTRAINT IF EXISTS otp_codes_user_id_fkey")
     op.execute("ALTER TABLE customer_profiles DROP CONSTRAINT IF EXISTS customer_profiles_user_id_fkey")
     op.execute("ALTER TABLE ccm_credit_accounts DROP CONSTRAINT IF EXISTS ccm_credit_accounts_user_id_fkey")
@@ -360,14 +360,14 @@ def upgrade() -> None:
                existing_type=sa.UUID(),
                type_=sa.String(length=20),
                existing_nullable=False,
-               postgresql_using="id::varchar")
+               postgresql_using="substring(id::text from 1 for 20)")
 
     # Now change all referencing columns
     op.alter_column('auth_credentials', 'user_id',
                existing_type=sa.UUID(),
                type_=sa.String(length=20),
                nullable=False,
-               postgresql_using="user_id::varchar")
+               postgresql_using="substring(user_id::text from 1 for 20)")
     op.alter_column('auth_credentials', 'password_updated_at',
                existing_type=postgresql.TIMESTAMP(timezone=True),
                nullable=False,
@@ -396,7 +396,6 @@ def upgrade() -> None:
                existing_type=postgresql.TIMESTAMP(timezone=True),
                nullable=False,
                existing_server_default=sa.text('now()'))
-    op.add_column('ccm_credit_accounts', sa.Column('version', sa.Integer(), nullable=False))
     op.alter_column('ccm_credit_accounts', 'outstanding_balance',
                existing_type=sa.NUMERIC(precision=15, scale=2),
                nullable=False)
@@ -476,7 +475,9 @@ def upgrade() -> None:
                existing_type=postgresql.TIMESTAMP(timezone=True),
                nullable=False,
                existing_server_default=sa.text('now()'))
-    op.add_column('credit_account', sa.Column('user_id', sa.String(length=20), nullable=False))
+    op.add_column('credit_account', sa.Column('user_id', sa.String(length=20), nullable=True))
+    op.execute("UPDATE credit_account SET user_id = substring(cif_id::text from 1 for 20)")
+    op.alter_column('credit_account', 'user_id', nullable=False)
     op.drop_constraint(op.f('credit_account_cif_id_fkey'), 'credit_account', type_='foreignkey')
     op.create_foreign_key(None, 'credit_account', 'users', ['user_id'], ['id'])
     op.drop_column('credit_account', 'cif_id')
@@ -484,7 +485,7 @@ def upgrade() -> None:
                existing_type=sa.UUID(),
                type_=sa.String(length=20),
                existing_nullable=False,
-               postgresql_using="user_id::varchar")
+               postgresql_using="substring(user_id::text from 1 for 20)")
     op.drop_constraint(op.f('credit_card_application_cif_id_fkey'), 'credit_card_application', type_='foreignkey')
     op.drop_column('credit_card_application', 'cif_id')
     op.alter_column('customer_addresses', 'customer_profile_id',
@@ -507,7 +508,7 @@ def upgrade() -> None:
                existing_type=sa.UUID(),
                type_=sa.String(length=20),
                nullable=False,
-               postgresql_using="user_id::varchar")
+               postgresql_using="substring(user_id::text from 1 for 20)")
     # Re-create customer_profiles FK after both columns are varchar
     op.create_foreign_key('customer_profiles_user_id_fkey', 'customer_profiles', 'users', ['user_id'], ['id'])
     op.alter_column('customer_profiles', 'dual_citizenship',
@@ -603,7 +604,7 @@ def upgrade() -> None:
                existing_type=sa.UUID(),
                type_=sa.String(length=20),
                existing_nullable=True,
-               postgresql_using="user_id::varchar")
+               postgresql_using="substring(user_id::text from 1 for 20)")
     # Re-create otp_codes FK after both columns are varchar
     op.create_foreign_key('otp_codes_user_id_fkey', 'otp_codes', 'users', ['user_id'], ['id'])
     op.alter_column('otp_codes', 'is_used',

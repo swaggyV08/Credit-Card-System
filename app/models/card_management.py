@@ -23,7 +23,7 @@ class CCMCreditAccount(Base):
     __tablename__ = "ccm_credit_accounts"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(20), ForeignKey("users.id"), nullable=False)
     # The requirement specifically mentions Card (1) - (1) Credit Account
     card_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("ccm_credit_cards.id"), unique=True, nullable=True)
 
@@ -81,7 +81,7 @@ class CCMCreditCard(Base):
     __tablename__ = "ccm_credit_cards"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(20), ForeignKey("users.id"), nullable=False)
     
     card_number: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False) # In real world, encrypted.
     card_network: Mapped[CardNetwork] = mapped_column(SQLEnum(CardNetwork, native_enum=False), nullable=False)

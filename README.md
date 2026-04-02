@@ -66,4 +66,4 @@ Access the interactive API documentation at: [http://localhost:8082/docs](http:/
 
 ---
 **Vishnu P**
-*Senior Backend Developer | Python Expert*
+*Backend Developer | Python Developer*

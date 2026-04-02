@@ -24,4 +24,4 @@ def verify_otp(input_otp: str, stored_hash: str) -> bool:
 
 
 def get_expiry_time():
-    return datetime.now(timezone.utc) + timedelta(minutes=5)
+    return datetime.now(timezone.utc) + timedelta(minutes=10)

@@ -11,6 +11,8 @@ class AdminCreate(BaseModel):
     password: str = Field(..., min_length=12, description="Minimum 12 characters")
     full_name: str = Field(..., min_length=2)
     role: Role = Role.MANAGER
+    country_code: Optional[str] = None
+    phone_number: Optional[str] = None
     department: Optional[str] = None
     employee_id: Optional[str] = None
 
@@ -29,7 +31,14 @@ class AdminResponse(BaseModel):
     employee_id: Optional[str] = None
     created_at: datetime
 
-    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+    model_config = ConfigDict(
+        from_attributes=True, 
+        populate_by_name=True,
+        json_encoders={
+            datetime: lambda v: getattr(v, "isoformat", lambda: str(v))(),
+            UUID: lambda v: str(v)
+        }
+    )
 
 
 class TokenResponse(BaseModel):
@@ -43,3 +52,11 @@ class AdminCreationResponse(BaseModel):
     admin: str
     created_at: datetime
     created_by: str
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={
+            datetime: lambda v: getattr(v, "isoformat", lambda: str(v))(),
+            UUID: lambda v: str(v)
+        }
+    )

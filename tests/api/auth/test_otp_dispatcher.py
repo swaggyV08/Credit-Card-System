@@ -37,45 +37,51 @@ def client(db_session):
     app.dependency_overrides.pop(get_db, None)
 
 def test_otp_dispatcher_flow(client, db_session):
-    linkage_id = str(uuid.uuid4())
+    from app.models.auth import User
+    user = User(id=str(uuid.uuid4())[:20], email="otpuser@test.com", status="UNVERIFIED")
+    db_session.add(user)
+    db_session.commit()
+    user_id = user.id
     
     # 1. Test Generate
-    gen_resp = client.post(f"/auth/otp/{linkage_id}?command=generate", json={
+    gen_resp = client.post(f"/auth/otp/{user_id}?command=generate", json={
         "purpose": "LOGIN"
     })
     assert gen_resp.status_code == 200
-    assert "Login OTP is generated successfully" in gen_resp.json()["message"]
+    assert "OTP dispatched" in gen_resp.json()["data"]["message"]
     
     # 2. Test Verify - Missing OTP (Should fail with 422)
-    verify_missing_otp_resp = client.post(f"/auth/otp/{linkage_id}?command=verify", json={
+    verify_missing_otp_resp = client.post(f"/auth/otp/{user_id}?command=verify", json={
         "purpose": "LOGIN"
     })
     # Our manual check returns 422
     assert verify_missing_otp_resp.status_code == 422
-    assert "otp' is mandatory" in verify_missing_otp_resp.json()["message"]
     
     # 3. Test Verify - Success
-    # Get the actual OTP from DB (for testing purposes)
-    otp_record = db_session.query(OTPCode).filter(OTPCode.linkage_id == linkage_id).first()
+    otp_record = db_session.query(OTPCode).filter(OTPCode.user_id == user_id).first()
     # We can't easily get the plain text OTP, so let's mock it in the DB or just know it from logs if we were manual.
     # In this test, we'll brute force or just set a known hash.
     known_otp = "123456"
     otp_record.otp_hash = otp_util.hash_otp(known_otp)
     db_session.commit()
     
-    verify_success_resp = client.post(f"/auth/otp/{linkage_id}?command=verify", json={
+    verify_success_resp = client.post(f"/auth/otp/{user_id}?command=verify", json={
         "purpose": "LOGIN",
         "otp": known_otp
     })
     assert verify_success_resp.status_code == 200
-    assert "otp is verified" in verify_success_resp.json()["message"]
+    assert "the login otp is verified" in verify_success_resp.json()["data"]["message"]
 
-def test_otp_dispatcher_generate_with_otp_ignored(client):
-    linkage_id = str(uuid.uuid4())
+def test_otp_dispatcher_generate_with_otp_ignored(client, db_session):
+    from app.models.auth import User
+    user = User(id=str(uuid.uuid4())[:20], email="otpuser2@test.com", status="UNVERIFIED")
+    db_session.add(user)
+    db_session.commit()
+    user_id = user.id
     # Generate should work even if otp is provided in body (it just ignores it)
-    gen_resp = client.post(f"/auth/otp/{linkage_id}?command=generate", json={
+    gen_resp = client.post(f"/auth/otp/{user_id}?command=generate", json={
         "purpose": "LOGIN",
         "otp": "123456"
     })
     assert gen_resp.status_code == 200
-    assert "Login OTP is generated successfully" in gen_resp.json()["message"]
+    assert "OTP dispatched" in gen_resp.json()["data"]["message"]

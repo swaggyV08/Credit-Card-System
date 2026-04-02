@@ -21,8 +21,12 @@ from app.core.middleware.request_id import RequestIDMiddleware
 from app.core.middleware.timing import TimingMiddleware
 from app.routers import auth as new_auth
 from app.api import customer, application
-from app.api.v1.endpoints import card_management
-from app.admin.api import credit_product, card_product, user_mgmt as admin_user_mgmt, credit_account_admin
+from app.admin.api import credit_product
+from app.routers import (
+    card_products, admin_users, credit_accounts, cards,
+    transactions, holds, disputes, clearing, settlement,
+    statements, fees, payments, controls, refunds
+)
 from app.core.exceptions import BankGradeException
 from app.core.app_error import AppError
 
@@ -153,32 +157,25 @@ app.include_router(new_auth.admin_router)
 app.include_router(customer.router)
 app.include_router(application.router)
 app.include_router(credit_product.router)
-app.include_router(card_product.router)
-app.include_router(admin_user_mgmt.router)
-app.include_router(credit_account_admin.router)
-app.include_router(card_management.router, prefix="/cards", tags=["Cards"])
-app.include_router(card_management.issue_router, prefix="/card_product", tags=["Card Issuance"])
 
-# =====================================================
-# TRANSACTION PROCESSING SYSTEM (v1 API)
-# =====================================================
-from app.api.transactions.transaction_routes import (
-    txn_router, hold_router, clearing_router, dispute_router, refund_router
-)
-from app.api.transactions.operations_routes import (
-    stmt_router, fee_router, payment_router, controls_router, recon_router
-)
+# newly refactored routers
+app.include_router(card_products.router)
+app.include_router(admin_users.router)
+app.include_router(credit_accounts.router)
+app.include_router(cards.router)
+app.include_router(cards.issue_router)
 
-app.include_router(txn_router)      # Group 1: Transactions
-app.include_router(hold_router)     # Group 2: Holds
-app.include_router(clearing_router) # Group 3: Clearing & Settlement
-app.include_router(dispute_router)  # Group 4: Disputes
-app.include_router(refund_router)   # Group 5: Refunds
-app.include_router(stmt_router)     # Group 6: Statements
-app.include_router(fee_router)      # Group 7: Fees & Interest
-app.include_router(payment_router)  # Group 8: Payments
-app.include_router(controls_router) # Group 9: Card Controls
-app.include_router(recon_router)    # Group 11: Reconciliation & Audit
+# refactored transaction processing routers
+app.include_router(transactions.router)
+app.include_router(holds.router)
+app.include_router(disputes.router)
+app.include_router(clearing.router)
+app.include_router(settlement.router)
+app.include_router(statements.router)
+app.include_router(fees.router)
+app.include_router(payments.router)
+app.include_router(controls.router)
+app.include_router(refunds.router)
 
 @app.get("/")
 def root():

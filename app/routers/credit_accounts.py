@@ -1,20 +1,13 @@
 from fastapi import APIRouter, Depends, Query, Path
 from sqlalchemy.orm import Session
 from uuid import UUID
-from typing import Optional, List
-from datetime import date, datetime, timedelta, timezone
+from typing import Optional
+from datetime import datetime, timedelta, timezone
 
 from app.api import deps
-from app.admin.schemas.credit_account_admin import (
-    PaginatedAccountsResponse, CreditAccountDetail,
-    CreditLimitUpdateRequest, CreditLimitUpdateResponse,
-    AccountStatusUpdateRequest, AccountStatusUpdateResponse,
-    AccountFreezeRequest, AccountFreezeResponse,
-    BillingCycleUpdateRequest, BillingCycleUpdateResponse,
-    RiskFlagUpdateRequest, RiskFlagUpdateResponse,
-    InterestUpdateRequest, InterestUpdateResponse,
-    OverlimitConfigRequest, OverlimitConfigResponse
-)
+from app.core.rbac import require, AuthenticatedPrincipal
+from app.schemas.base import envelope_success
+from app.admin.schemas.credit_account_admin import CreditAccountDetail
 from app.admin.schemas.unified_updates import AdminAccountCommand, UnifiedAccountUpdateRequest
 from app.admin.services.credit_account_admin_svc import CreditAccountAdminService
 from app.models.enums import CCMAccountStatus
@@ -22,34 +15,36 @@ from app.core.exceptions import BankGradeException
 
 router = APIRouter(prefix="/credit-accounts", tags=["Admin: Credit Accounts"])
 
-@router.get("/", response_model=PaginatedAccountsResponse)
+@router.get("/")
 def list_accounts(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     status: Optional[CCMAccountStatus] = None,
     product_code: Optional[str] = None,
     db: Session = Depends(deps.get_db),
-    admin=Depends(deps.get_current_admin_user)
+    principal: AuthenticatedPrincipal = Depends(require("credit_account:list"))
 ):
-    """Retrieves a paginated list of credit accounts with optional filters by status and product_code. Status values: PENDING, ACTIVE, SUSPENDED, FROZEN, DELINQUENT, CLOSED, CHARGED_OFF."""
+    """Retrieves a paginated list of credit accounts with optional filters by status and product_code."""
     accounts, total = CreditAccountAdminService.list_accounts(
         db, page=page, limit=limit, status=status, product_code=product_code
     )
-    return {
+    accounts_dump = [a.model_dump(mode='json') if hasattr(a, 'model_dump') else a for a in accounts]
+    return envelope_success({
         "page": page,
         "limit": limit,
         "total_records": total,
-        "accounts": accounts
-    }
+        "accounts": accounts_dump
+    })
 
-@router.get("/{credit_account_id}", response_model=CreditAccountDetail)
+@router.get("/{credit_account_id}")
 def get_account_details(
     credit_account_id: UUID = Path(...),
     db: Session = Depends(deps.get_db),
-    admin=Depends(deps.get_current_admin_user)
+    principal: AuthenticatedPrincipal = Depends(require("credit_account:detail"))
 ):
-    """Retrieves full details of a single credit account including balances, APRs, risk flag, overlimit config, and timestamps."""
-    return CreditAccountAdminService.get_account(db, credit_account_id)
+    """Retrieves full details of a single credit account."""
+    acc = CreditAccountAdminService.get_account(db, credit_account_id)
+    return envelope_success(acc.model_dump(mode='json') if hasattr(acc, 'model_dump') else acc)
 
 @router.patch("/{credit_account_id}")
 def update_credit_account_unified(
@@ -57,12 +52,11 @@ def update_credit_account_unified(
     credit_account_id: UUID = Path(...),
     command: AdminAccountCommand = Query(...),
     db: Session = Depends(deps.get_db),
-    admin=Depends(deps.get_current_admin_user)
+    principal: AuthenticatedPrincipal = Depends(require("credit_account:update"))
 ):
     """
     Unified endpoint for credit account updates.
     Supported commands: limit, status, freeze, billing_cycle, risk, interest, overlimit.
-    Strictly validates that only the relevant command field is provided.
     """
     # 1. Strict Validation: Ensure ONLY the field matching the command is present
     fields = {
@@ -76,8 +70,6 @@ def update_credit_account_unified(
     }
     
     active_field = fields.get(command)
-    
-    # Check for extra fields
     provided_fields = [f for f, v in req.model_dump().items() if v is not None]
     
     if active_field not in provided_fields:
@@ -99,78 +91,79 @@ def update_credit_account_unified(
 
     # 2. Dispatch to specific service methods and return appropriate response
     if command == AdminAccountCommand.LIMIT:
-        account, old_limit = CreditAccountAdminService.update_limit(db, credit_account_id, req.limits, admin.id)
-        return {
-            "credit_account_id": account.id,
-            "old_credit_limit": old_limit,
-            "new_credit_limit": account.credit_limit,
-            "available_credit": account.available_credit,
-            "updated_by": admin.id,
-            "updated_at": datetime.now(timezone.utc)
+        account, old_limit = CreditAccountAdminService.update_limit(db, credit_account_id, req.limits, principal.user_id)
+        result = {
+            "credit_account_id": str(account.id),
+            "old_credit_limit": str(old_limit),
+            "new_credit_limit": str(account.credit_limit),
+            "available_credit": str(account.available_credit),
+            "updated_by": principal.user_id,
+            "updated_at": datetime.now(timezone.utc).isoformat()
         }
         
     elif command == AdminAccountCommand.STATUS:
         account, old_status = CreditAccountAdminService.update_status(db, credit_account_id, req.status)
-        return {
-            "credit_account_id": account.id,
-            "previous_status": old_status,
-            "new_status": account.status,
-            "updated_at": datetime.now(timezone.utc)
+        result = {
+            "credit_account_id": str(account.id),
+            "previous_status": old_status.value if hasattr(old_status, 'value') else old_status,
+            "new_status": account.status.value if hasattr(account.status, 'value') else account.status,
+            "updated_at": datetime.now(timezone.utc).isoformat()
         }
         
     elif command == AdminAccountCommand.FREEZE:
         account, new_status = CreditAccountAdminService.freeze(db, credit_account_id, req.freeze)
-        return {
-            "credit_account_id": account.id,
+        result = {
+            "credit_account_id": str(account.id),
             "freeze_status": "FROZEN" if req.freeze.freeze else "ACTIVE",
             "reason_code": req.freeze.reason_code,
-            "updated_at": datetime.now(timezone.utc)
+            "updated_at": datetime.now(timezone.utc).isoformat()
         }
         
     elif command == AdminAccountCommand.BILLING_CYCLE:
         account, old_day, old_grace = CreditAccountAdminService.update_billing_cycle(db, credit_account_id, req.billing_cycle)
-        # Simple projection for next statement date (fictional logic for response)
         next_date = datetime.now(timezone.utc) + timedelta(days=30)
-        return {
-            "credit_account_id": account.id,
+        result = {
+            "credit_account_id": str(account.id),
             "old_billing_cycle_day": old_day,
             "old_grace_period": old_grace,
             "new_billing_cycle_day": account.billing_cycle_day,
             "new_grace_period": account.payment_due_days,
-            "next_statement_date": next_date
+            "next_statement_date": next_date.isoformat()
         }
         
     elif command == AdminAccountCommand.RISK:
         account, old_risk = CreditAccountAdminService.update_risk_flag(db, credit_account_id, req.risk)
-        return {
-            "credit_account_id": account.id,
+        result = {
+            "credit_account_id": str(account.id),
             "old_risk_flag": old_risk,
             "new_risk_flag": account.risk_flag,
-            "updated_at": datetime.now(timezone.utc)
+            "updated_at": datetime.now(timezone.utc).isoformat()
         }
         
     elif command == AdminAccountCommand.INTEREST:
         account, old_p, old_c, old_pen = CreditAccountAdminService.update_interest(db, credit_account_id, req.interest)
-        return {
-            "credit_account_id": account.id,
-            "old_purchase_apr": old_p,
-            "old_cash_apr": old_c,
-            "old_penalty_apr": old_pen,
-            "purchase_apr": account.purchase_apr,
-            "cash_apr": account.cash_apr,
-            "penalty_apr": account.penalty_apr
+        result = {
+            "credit_account_id": str(account.id),
+            "old_purchase_apr": str(old_p),
+            "old_cash_apr": str(old_c),
+            "old_penalty_apr": str(old_pen),
+            "purchase_apr": str(account.purchase_apr),
+            "cash_apr": str(account.cash_apr),
+            "penalty_apr": str(account.penalty_apr)
         }
         
     elif command == AdminAccountCommand.OVERLIMIT:
         account, old_en, old_buf, old_fee = CreditAccountAdminService.update_overlimit(db, credit_account_id, req.overlimit)
-        return {
-            "credit_account_id": account.id,
+        result = {
+            "credit_account_id": str(account.id),
             "old_overlimit_enabled": old_en,
-            "old_overlimit_buffer": old_buf,
-            "old_overlimit_fee": old_fee,
+            "old_overlimit_buffer": str(old_buf),
+            "old_overlimit_fee": str(old_fee),
             "overlimit_enabled": account.overlimit_enabled,
-            "overlimit_buffer": account.overlimit_buffer,
-            "overlimit_fee": account.overlimit_fee
+            "overlimit_buffer": str(account.overlimit_buffer),
+            "overlimit_fee": str(account.overlimit_fee)
         }
-    
-    raise BankGradeException(status_code=400, message="Invalid command")
+    else:
+        raise BankGradeException(status_code=400, message="Invalid command")
+        
+    return envelope_success(result)

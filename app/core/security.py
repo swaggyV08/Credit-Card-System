@@ -1,16 +1,20 @@
-from passlib.context import CryptContext
+import bcrypt
 import re
 
-pwd_context = CryptContext(
-    schemes=["pbkdf2_sha256"],
-    deprecated="auto"
-)
-
 def hash_value(value: str) -> str:
-    return pwd_context.hash(value)
+    value_bytes = value.encode('utf-8')
+    if len(value_bytes) > 72:
+        value_bytes = value_bytes[:72]
+    # bcrypt.hashpw expects bytes, returns bytes
+    salt = bcrypt.gensalt(rounds=12)
+    return bcrypt.hashpw(value_bytes, salt).decode('utf-8')
 
 def verify_value(value: str, hashed: str) -> bool:
-    return pwd_context.verify(value, hashed)
+    value_bytes = value.encode('utf-8')
+    if len(value_bytes) > 72:
+        value_bytes = value_bytes[:72]
+    hashed_bytes = hashed.encode('utf-8')
+    return bcrypt.checkpw(value_bytes, hashed_bytes)
 
 def validate_password_rules(password: str):
     if len(password) < 8:

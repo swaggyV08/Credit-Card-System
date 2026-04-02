@@ -100,7 +100,7 @@ def test_otp_verify_wrong_otp():
     response = client.post(f"/auth/otp/{user_id}?command=verify", json={"purpose": "REGISTRATION", "otp": "654321"}) # Wrong OTP
     
     assert response.status_code == 422
-    assert response.json()["errors"][0]["code"] == "UNPROCESSABLE"
+    assert response.json()["errors"][0]["code"] == "INVALID_OTP"
 
 def test_otp_verify_expired_otp():
     user_id = str(uuid4())
@@ -156,8 +156,8 @@ def test_login_valid_credentials():
     
 def _get_mock_token(role: str):
     from app.core.jwt import create_access_token
-    token_type = "ADMIN" if role in ["ADMIN", "MANAGER", "SALES"] else "USER"
-    return create_access_token({"sub": str(uuid4()), "role": role, "type": token_type})
+    token_type = "admin" if role in ["ADMIN", "MANAGER", "SALES"] else "user"
+    return create_access_token({"sub": str(uuid4()), "role": role, "token_type": token_type})
 
 def test_admin_create_rbac():
     # Test ADMIN can create admin

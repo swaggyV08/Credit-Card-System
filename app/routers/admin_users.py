@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from uuid import UUID
 from typing import List
-from sqlalchemy import func
 
-from app.api.deps import get_db, get_current_admin_user
+from app.api.deps import get_db
+from app.core.rbac import require, AuthenticatedPrincipal
+from app.schemas.base import envelope_success
 from app.models.auth import User
 from app.models.customer import CustomerProfile
 from app.admin.models.card_issuance import CreditAccount, Card
@@ -12,14 +12,12 @@ from app.admin.schemas.user_mgmt import AdminUserSummaryResponse, AdminUserDetai
 
 router = APIRouter(prefix="/customers", tags=["Admin: User Management"])
 
-@router.get("/", response_model=List[AdminUserSummaryResponse])
+@router.get("/")
 def list_cif_completed_users(
     db: Session = Depends(get_db),
-    admin: User = Depends(get_current_admin_user)
+    principal: AuthenticatedPrincipal = Depends(require("user:list"))
 ):
-    """Retrieves all users who have completed CIF onboarding, returning their cif_id, credit_account_id, card_id, and account_status."""
-    # Join User -> Profile -> Account -> Card
-    # Using outer joins to capture users who finished CIF but might not have cards yet
+    """Retrieves all users who have completed CIF onboarding."""
     results = db.query(
         User.id.label("user_id"),
         CreditAccount.id.label("credit_account_id"),
@@ -35,21 +33,29 @@ def list_cif_completed_users(
         User.is_cif_completed == True
     ).all()
 
-    return results
+    # Convert NamedTuple-like results to dicts
+    data = []
+    for r in results:
+        data.append({
+            "user_id": str(r.user_id),
+            "credit_account_id": str(r.credit_account_id) if r.credit_account_id else None,
+            "card_id": str(r.card_id) if r.card_id else None,
+            "account_status": r.account_status
+        })
+    return envelope_success(data)
 
-@router.get("/{user_id}", response_model=AdminUserDetailsResponse)
+@router.get("/{user_id}")
 def get_user_admin_detail(
     user_id: str,
     db: Session = Depends(get_db),
-    admin: User = Depends(get_current_admin_user)
+    principal: AuthenticatedPrincipal = Depends(require("user:detail"))
 ):
-    """Retrieves comprehensive admin view of a user by UUID, including profile details, total credit accounts, total cards, and nested account-to-card mappings."""
+    """Retrieves comprehensive admin view of a user."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     profile = db.query(CustomerProfile).filter(CustomerProfile.user_id == user.id).first()
-    
     accounts = db.query(CreditAccount).filter(CreditAccount.user_id == user.id).all() if profile else []
     
     account_details = []
@@ -76,7 +82,7 @@ def get_user_admin_detail(
             )
         )
 
-    return AdminUserDetailsResponse(
+    response_data = AdminUserDetailsResponse(
         user_id=user.id,
         email=user.email,
         phone_number=user.phone_number,
@@ -88,3 +94,5 @@ def get_user_admin_detail(
         total_cards=total_cards,
         credit_accounts=account_details
     )
+    
+    return envelope_success(response_data.model_dump(mode='json') if hasattr(response_data, 'model_dump') else response_data)

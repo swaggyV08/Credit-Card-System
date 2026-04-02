@@ -3,7 +3,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy import select, update
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from uuid import UUID
 import uuid
 
@@ -162,7 +162,7 @@ def login_email(data: LoginEmailRequest, db: Session = Depends(get_db)):
 
     token = create_access_token({
         "sub": str(user.id),
-        "type": "USER",
+        "token_type": "user",
         "role": "USER",
     })
 
@@ -307,13 +307,13 @@ async def generic_otp_dispatcher(
         otp_entry = db.execute(stmt).scalar_one_or_none()
 
         if not otp_entry:
-            raise HTTPException(status_code=422, detail={"code": "UNPROCESSABLE", "message": "Invalid or expired OTP"})
+            raise HTTPException(status_code=422, detail={"code": "INVALID_OTP", "message": "Invalid or expired OTP"})
             
         if otp_entry.expires_at < datetime.now(timezone.utc):
-            raise HTTPException(status_code=422, detail={"code": "UNPROCESSABLE", "message": "OTP has expired, please request a new one"})
+            raise HTTPException(status_code=422, detail={"code": "OTP_EXPIRED", "message": "OTP has expired, please request a new one"})
             
         if not verify_otp(data.otp, otp_entry.otp_hash):
-            raise HTTPException(status_code=422, detail={"code": "UNPROCESSABLE", "message": "Invalid or expired OTP"})
+            raise HTTPException(status_code=422, detail={"code": "INVALID_OTP", "message": "Invalid or expired OTP"})
 
         otp_entry.is_verified = True
 
@@ -324,6 +324,15 @@ async def generic_otp_dispatcher(
             return envelope_success({
                 "message": "REGISTRATION COMPLETE",
                 "user_id": user.id
+            })
+
+        if data.purpose == OTPPurpose.PASSWORD_RESET:
+            # Generate a 15-minute token
+            reset_token = create_access_token({"sub": user.id, "purpose": "password_reset"}, expires_delta=timedelta(minutes=15))
+            db.commit()
+            return envelope_success({
+                "message": "OTP verified successfully",
+                "password_reset_token": reset_token
             })
 
         db.commit()
@@ -349,7 +358,7 @@ def login_admin_email(data: AdminEmailLogin, db: Session = Depends(get_db)):
     role_value = admin.role.value if hasattr(admin.role, "value") else str(admin.role)
     access_token = create_access_token({
         "sub": str(admin.id),
-        "type": "ADMIN",
+        "token_type": "admin",
         "role": role_value,
     })
     

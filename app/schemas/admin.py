@@ -5,16 +5,23 @@ from typing import Optional
 
 from app.core.roles import Role
 
+from app.schemas.auth import NameSchema, ContactSchema
 
 class AdminCreate(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=12, description="Minimum 12 characters")
-    full_name: str = Field(..., min_length=2)
+    full_name: str
+    country_code: str
+    phone_number: str
     role: Role = Role.MANAGER
-    country_code: Optional[str] = None
-    phone_number: Optional[str] = None
     department: Optional[str] = None
     employee_id: Optional[str] = None
+
+    @field_validator("role")
+    def validate_role(cls, v):
+        if v == Role.SUPERADMIN:
+            raise ValueError("Cannot create SUPERADMIN role.")
+        return v
 
 
 class AdminEmailLogin(BaseModel):

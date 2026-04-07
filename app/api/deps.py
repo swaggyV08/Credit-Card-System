@@ -14,3 +14,10 @@ def get_db():
         yield db
     finally:
         db.close()
+
+# Legacy stubs for tests to override
+def get_current_admin_user():
+    raise NotImplementedError("Legacy RBAC removed. Use app.core.rbac.require()")
+
+def get_current_authenticated_user():
+    raise NotImplementedError("Legacy RBAC removed. Use app.core.rbac.require()")

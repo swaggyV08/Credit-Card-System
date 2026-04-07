@@ -25,6 +25,8 @@ from app.admin.schemas.card_issuance import (
     ApplicationReviewResponse, ApplicationReviewRequest, AdminKYCReviewRequest,
     CreditAccountManualConfig, IssueCardRequest
 )
+from app.admin.models.credit_product import CreditProductInformation
+from app.admin.services.issuance_svc import CardIssuanceService
 from pydantic import BaseModel
 
 class ApplicationSubmitResponse(BaseModel):
@@ -58,8 +60,7 @@ def submit_application(
     if not cif:
         raise AppError(code="PROFILE_MISSING", message="Customer Profile not found. Please ensure your account setup is complete.", http_status=400)
         
-    from app.admin.models.credit_product import CreditProductInformation
-    
+
     # Case conversion is handled in the schema (.lower())
     credit_product = db.query(CreditProductInformation).filter(
         CreditProductInformation.product_code == data.credit_product_code
@@ -108,7 +109,6 @@ def submit_application(
         )
 
     # --- PRE-PERSISTENCE ASSESSMENT ---
-    from app.admin.services.issuance_svc import CardIssuanceService
     assessment = CardIssuanceService.run_engines_pre_assessment(db, cif, data, credit_product)
 
     if assessment["status"] == "REJECTED":
@@ -202,7 +202,7 @@ def submit_application(
 )
 def get_applications(
     command: Literal["all", "by_user"] = Query(..., description="Action to perform: 'all' or 'by_user'"),
-    user_id: Optional[UUID] = Query(None, description="Required for command=by_user"),
+    user_id: Optional[str] = Query(None, description="Required for command=by_user"),
     status_filter: Optional[ApplicationStatus] = Query(None, description="Filter by status"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -223,27 +223,26 @@ def get_applications(
         apps = db.query(CreditCardApplication).filter(CreditCardApplication.user_id == user_id).all()
         
         # Hydrate application details with assessments if needed
-        from app.admin.services.issuance_svc import CardIssuanceService
         results = []
-        for app in apps:
-            bureau_report = db.query(BureauReport).filter(BureauReport.application_id == app.id).first()
+        for app_record in apps:
+            bureau_report = db.query(BureauReport).filter(BureauReport.application_id == app_record.id).first()
             if not bureau_report:
-                cif = db.query(CustomerProfile).filter(CustomerProfile.user_id == app.user_id).first()
+                cif = db.query(CustomerProfile).filter(CustomerProfile.user_id == app_record.user_id).first()
                 if cif:
-                    assessment = CardIssuanceService.run_engines_pre_assessment(db, cif, app, app.credit_product)
+                    assessment = CardIssuanceService.run_engines_pre_assessment(db, cif, app_record, app_record.credit_product)
                     new_bureau = BureauReport(
-                        application_id=app.id,
+                        application_id=app_record.id,
                         bureau_score=assessment["bureau_data"]["bureau_score"],
                         report_reference_id=assessment["bureau_data"]["report_reference_id"],
                         bureau_snapshot=assessment["bureau_data"]["snapshot"]
                     )
                     db.add(new_bureau)
                     for rule in assessment["fraud_rules"]:
-                        db.add(FraudFlag(application_id=app.id, flag_code=rule.code, flag_description=rule.description, severity=rule.severity))
-                    db.add(RiskAssessment(application_id=app.id, risk_band=assessment["risk_assessment"]["band"], confidence_score=assessment["risk_assessment"]["confidence"], assessment_explanation=assessment["risk_assessment"]["explanation"]))
+                        db.add(FraudFlag(application_id=app_record.id, flag_code=rule.code, flag_description=rule.description, severity=rule.severity))
+                    db.add(RiskAssessment(application_id=app_record.id, risk_band=assessment["risk_assessment"]["band"], confidence_score=assessment["risk_assessment"]["confidence"], assessment_explanation=assessment["risk_assessment"]["explanation"]))
                     db.commit()
             
-            payload = CreditCardApplicationResponse.model_validate(app)
+            payload = CreditCardApplicationResponse.model_validate(app_record)
             results.append(payload.model_dump(mode='json'))
         
         return envelope_success(results)
@@ -275,11 +274,12 @@ def get_applications(
     dependencies=[Depends(require("application:evaluate")), Depends(require("application:configure"))]
 )
 async def process_application(
-    user_id: UUID,
+    user_id: str,
     command: Literal["evaluate", "configure"] = Query(..., description="Action to perform on user's application"),
     application_id: Optional[UUID] = Query(None, description="Required for evaluate/configure commands"),
     request: Request = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    principal: AuthenticatedPrincipal = Depends(require("application:evaluate"))
 ):
     """
     Unified endpoint to evaluate or configure an application.
@@ -299,13 +299,13 @@ async def process_application(
         if request is not None:
             body = await request.body()
             if body and body.strip() not in (b"", b"null", b"{}"):
-                raise HTTPException(status_code=422, detail={
-                    "code": "NO_BODY_ACCEPTED",
-                    "message": "command=evaluate does not accept a request body. Remove the request body and try again."
-                })
+                raise AppError(
+                    code="NO_BODY_ACCEPTED",
+                    message="command=evaluate does not accept a request body. Remove the request body and try again.",
+                    http_status=422
+                )
                 
-        from app.admin.services.issuance_svc import CardIssuanceService
-        result = CardIssuanceService.evaluate_application(db, application_id, user_id)
+        result = CardIssuanceService.evaluate_application(db, application_id, UUID(principal.user_id))
         return envelope_success(result)
 
     elif command == "configure":
@@ -315,8 +315,7 @@ async def process_application(
         body = await request.json()
         config = CreditAccountManualConfig(**body)
         
-        from app.admin.services.issuance_svc import CardIssuanceService
-        account = CardIssuanceService.configure_and_create_account(db, application_id, config, user_id)
+        account = CardIssuanceService.configure_and_create_account(db, application_id, config, UUID(principal.user_id))
         payload = CreditAccountResponse.model_validate(account)
         return envelope_success(payload.model_dump(mode='json'))
 
@@ -332,7 +331,6 @@ def issue_card_for_account(
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require("application:issue_card"))
 ):
-    from app.admin.services.issuance_svc import CardIssuanceService
     card = CardIssuanceService.issue_card_manual(db, credit_account_id, data, principal.user_id)
     payload = CardResponse.model_validate(card)
     return envelope_success(payload.model_dump(mode='json'))

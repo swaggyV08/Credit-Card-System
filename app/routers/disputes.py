@@ -8,10 +8,11 @@ from app.schemas.base import envelope_success
 
 from app.models.transactions.disputes import Dispute, DisputeEvidence
 from app.models.transactions.enums import DisputeStatus
-from app.schemas.transactions.transactions import (
-    CreateDisputeRequest, DisputeSummarySchema, DisputeDetailSchema, DisputeCommandRequest
-)
 from app.services.transactions.transaction_service import DisputeService
+from app.core.exceptions import (
+    EvidenceDeadlinePassedError, ResolutionRequiredError,
+)
+from datetime import datetime, timezone
 
 router = APIRouter(tags=["Disputes"])
 
@@ -43,8 +44,11 @@ def transition_dispute(
 
     body = body or DisputeCommandRequest()
 
-    # The original router had logic inside it for evidence and escalate, let's keep it
+    # 1. Validation: Evidence Deadline check
     if command == "submit_evidence":
+        if dispute.deadline and datetime.now(timezone.utc) > dispute.deadline:
+            raise EvidenceDeadlinePassedError()
+
         if body.documents:
             for doc in body.documents:
                 evidence = DisputeEvidence(
@@ -52,6 +56,8 @@ def transition_dispute(
                     document_s3_key=doc, statement=body.statement,
                 )
                 db.add(evidence)
+        # Update status to UNDER_REVIEW
+        dispute.status = DisputeStatus.UNDER_REVIEW.value
         db.commit()
         db.refresh(dispute)
     elif command == "escalate":
@@ -60,7 +66,7 @@ def transition_dispute(
         db.refresh(dispute)
     elif command == "resolve":
         if not body.resolution:
-            raise HTTPException(status_code=422, detail="resolution is required (RESOLVED_WON or RESOLVED_LOST)")
+            raise ResolutionRequiredError()
         dispute = DisputeService.resolve_dispute(db, dispute, body.resolution, actor_id=principal.user_id)
     elif command == "withdraw":
         # 'withdraw' corresponds to a user action, so anyone with dispute:raise or manage can theoretically hit this

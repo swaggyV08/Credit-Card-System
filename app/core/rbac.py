@@ -49,76 +49,82 @@ ROLE_PERMISSIONS: dict[str, set[Role]] = {
     "auth:login":                 {Role.USER},
     "auth:password_reset":        {Role.USER},
     "auth:otp":                   {Role.USER},
-    "admin:login":                {Role.ADMIN, Role.MANAGER, Role.SALES},
-    "admin:create":               {Role.ADMIN},
+    "admin:login":                {Role.SUPERADMIN, Role.ADMIN, Role.MANAGER, Role.SALES},
+    "admin:create":               {Role.SUPERADMIN},
 
     # ── Customer CIF & KYC ──────────────────────────────────────
     "cif:write":                  {Role.USER},
-    "cif:read":                   {Role.USER, Role.MANAGER, Role.ADMIN},
+    "cif:read":                   {Role.USER, Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
     "kyc:conduct":                {Role.USER, Role.SALES},
-    "customer:read":              {Role.USER, Role.SALES, Role.MANAGER, Role.ADMIN},
+    "customer:read":              {Role.USER, Role.SALES, Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
     "customer:set_pin":           {Role.USER},
 
     # ── Applications ────────────────────────────────────────────
     "application:submit":         {Role.USER, Role.SALES},
-    "application:read":           {Role.USER, Role.SALES, Role.MANAGER, Role.ADMIN},
-    "application:evaluate":       {Role.MANAGER, Role.ADMIN},
-    "application:configure":      {Role.MANAGER, Role.ADMIN},
-    "application:issue_card":     {Role.MANAGER, Role.ADMIN},
+    "application:read":           {Role.USER, Role.SALES, Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
+    "application:evaluate":       {Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
+    "application:configure":      {Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
+    "application:issue_card":     {Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
 
     # ── Credit Products ─────────────────────────────────────────
-    "credit_product:create":      {Role.ADMIN},
-    "credit_product:read":        {Role.ADMIN, Role.MANAGER, Role.SALES},
-    "credit_product:status":      {Role.ADMIN},
-    "credit_product:delete":      {Role.ADMIN},
+    "credit_product:create":      {Role.ADMIN, Role.SUPERADMIN},
+    "credit_product:read":        {Role.ADMIN, Role.MANAGER, Role.SALES, Role.SUPERADMIN},
+    "credit_product:status":      {Role.ADMIN, Role.SUPERADMIN},
+    "credit_product:delete":      {Role.ADMIN, Role.SUPERADMIN},
 
     # ── Card Products ───────────────────────────────────────────
-    "card_product:create":        {Role.ADMIN},
-    "card_product:read":          {Role.ADMIN, Role.MANAGER, Role.SALES},
-    "card_product:approve":       {Role.ADMIN},
-    "card_product:delete":        {Role.ADMIN},
+    "card_product:create":        {Role.ADMIN, Role.SUPERADMIN},
+    "card_product:read":          {Role.ADMIN, Role.MANAGER, Role.SALES, Role.SUPERADMIN},
+    "card_product:approve":       {Role.ADMIN, Role.SUPERADMIN},
+    "card_product:delete":        {Role.ADMIN, Role.SUPERADMIN},
 
     # ── User Management (admin) ──────────────────────────────────
-    "user:list":                  {Role.ADMIN, Role.MANAGER},
-    "user:detail":                {Role.ADMIN, Role.MANAGER, Role.SALES},
-    "credit_account:list":        {Role.ADMIN, Role.MANAGER},
-    "credit_account:detail":      {Role.ADMIN, Role.MANAGER, Role.SALES},
-    "credit_account:update":      {Role.ADMIN, Role.MANAGER},
+    "user:list":                  {Role.ADMIN, Role.MANAGER, Role.SUPERADMIN},
+    "user:detail":                {Role.ADMIN, Role.MANAGER, Role.SALES, Role.SUPERADMIN},
+    "credit_account:list":        {Role.ADMIN, Role.MANAGER, Role.SUPERADMIN},
+    "credit_account:detail":      {Role.ADMIN, Role.MANAGER, Role.SALES, Role.SUPERADMIN},
+    "credit_account:update":      {Role.ADMIN, Role.MANAGER, Role.SUPERADMIN},
 
     # ── Cards ────────────────────────────────────────────────────
     "card:activate":              {Role.USER},
-    "card:lifecycle":             {Role.USER, Role.ADMIN, Role.MANAGER},
-    "card:read":                  {Role.USER, Role.MANAGER, Role.ADMIN},
-    "card:issue":                 {Role.ADMIN, Role.MANAGER},
+    "card:lifecycle":             {Role.USER, Role.ADMIN, Role.MANAGER, Role.SUPERADMIN},
+    "card:read":                  {Role.USER, Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
+    "card:issue":                 {Role.ADMIN, Role.MANAGER, Role.SUPERADMIN},
 
     # ── Transactions ─────────────────────────────────────────────
     "transaction:initiate":       {Role.USER},
-    "transaction:read":           {Role.USER, Role.MANAGER, Role.ADMIN},
-    "transaction:state":          {Role.ADMIN, Role.MANAGER},
+    "transaction:read":           {Role.USER, Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
+    "transaction:state":          {Role.ADMIN, Role.MANAGER, Role.SUPERADMIN},
 
     # ── Settlement ───────────────────────────────────────────────
-    "settlement:run":             {Role.ADMIN},
+    "settlement:run":             {Role.ADMIN, Role.SUPERADMIN},
 
     # ── Disputes ─────────────────────────────────────────────────
     "dispute:raise":              {Role.USER},
-    "dispute:manage":             {Role.ADMIN, Role.MANAGER},
+    "dispute:manage":             {Role.ADMIN, Role.MANAGER, Role.SUPERADMIN},
 
     # ── Refunds ──────────────────────────────────────────────────
-    "refund:process":             {Role.ADMIN, Role.MANAGER},
+    "refund:process":             {Role.ADMIN, Role.MANAGER, Role.SUPERADMIN},
 
     # ── Statements ───────────────────────────────────────────────
-    "statement:read":             {Role.USER, Role.MANAGER, Role.ADMIN},
+    "statement:read":             {Role.USER, Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
 
     # ── Fees ─────────────────────────────────────────────────────
-    "fee:apply":                  {Role.ADMIN, Role.MANAGER},
+    "fee:apply":                  {Role.ADMIN, Role.MANAGER, Role.SUPERADMIN},
 
     # ── Payments ─────────────────────────────────────────────────
     "payment:make":               {Role.USER},
-    "payment:read":               {Role.USER, Role.MANAGER, Role.ADMIN},
+    "payment:read":               {Role.USER, Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
 
     # ── Card Controls ────────────────────────────────────────────
-    "controls:read":              {Role.USER, Role.MANAGER, Role.ADMIN},
-    "controls:update":            {Role.USER, Role.ADMIN},
+    "controls:read":              {Role.USER, Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
+    "controls:update":            {Role.USER, Role.ADMIN, Role.SUPERADMIN},
+
+    # ── Billing ──────────────────────────────────────────────────
+    "billing:generate":           {Role.ADMIN, Role.SUPERADMIN},
+
+    # ── Fraud ────────────────────────────────────────────────────
+    "fraud:read":                 {Role.ADMIN, Role.MANAGER, Role.SUPERADMIN},
 }
 
 
@@ -129,14 +135,16 @@ def _resolve_role(payload: dict) -> Role:
     Resolve the Role from JWT payload.
     Admin tokens have type=ADMIN; their role comes from the 'role' claim.
     User tokens have type=USER; role is always USER.
+
+    Legacy compatibility: maps old 'SUPER_ADMIN' claim values to SUPERADMIN.
     """
-    token_type = payload.get("type", "USER")
+    token_type = str(payload.get("token_type") or payload.get("type", "USER")).upper()
     role_claim = payload.get("role", "USER")
 
     if token_type == "ADMIN":
-        # Map old SUPERADMIN values to ADMIN
-        if role_claim == "SUPERADMIN":
-            return Role.ADMIN
+        # Legacy compat: SUPER_ADMIN in old tokens → SUPERADMIN
+        if role_claim == "SUPER_ADMIN":
+            return Role.SUPERADMIN
         try:
             return Role(role_claim)
         except ValueError:
@@ -153,7 +161,7 @@ def require(permission: str):
     3. Reads role claim from payload
     4. Checks role is in ROLE_PERMISSIONS[permission]
     5. Raises HTTP 401 if token is invalid/expired
-    6. Raises HTTP 403 with message if role not in allowed set
+    6. Raises HTTP 403 with INSUFFICIENT_PERMISSIONS if role not in allowed set
     7. Returns AuthenticatedPrincipal downstream
     """
     def _dependency(
@@ -170,15 +178,15 @@ def require(permission: str):
             )
 
         role = _resolve_role(payload)
-        token_type = payload.get("type", "USER")
+        token_type = str(payload.get("token_type") or payload.get("type", "USER")).upper()
         jti = payload.get("jti")
 
         allowed = ROLE_PERMISSIONS.get(permission, set())
-        if role not in allowed:
+        if role not in allowed and role != Role.SUPERADMIN:
             raise HTTPException(
                 status_code=403,
                 detail={
-                    "code": "FORBIDDEN",
+                    "code": "INSUFFICIENT_PERMISSIONS",
                     "message": (
                         f"Role {role.value} is not authorised "
                         f"to perform '{permission}'"
@@ -193,4 +201,5 @@ def require(permission: str):
             token_type=token_type,
         )
 
+    _dependency.permission_name = permission
     return _dependency

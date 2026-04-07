@@ -58,13 +58,26 @@ class NameSchema(BaseModel):
         return v
 
 
-# REGISTRATION (REST CORRECT)
 class CreateRegistrationRequest(BaseModel):
-    name: NameSchema
+    full_name: str = Field(..., min_length=2)
     contact: ContactSchema
     email: EmailStr
-    password: str = Field(..., min_length=8)
+    date_of_birth: date
+    password: str = Field(..., min_length=12)
     confirm_password: str
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def lowercase_email(cls, v):
+        if isinstance(v, str):
+            return v.lower().strip()
+        return v
+
+    @field_validator("full_name")
+    def validate_full_name(cls, v):
+        if not v.replace(" ", "").isalpha():
+            raise ValueError("Name should only contain letters and spaces")
+        return v
 
 
 class VerifyRegistrationRequest(BaseModel):
@@ -83,6 +96,7 @@ class CreatePasswordResetRequest(BaseModel):
 
 
 class VerifyPasswordResetRequest(BaseModel):
+    password_reset_token: str
     new_password: str
     confirm_password: str
 
@@ -98,9 +112,14 @@ class OTPVerifyRequest(BaseModel):
     otp: str = Field(..., min_length=4, max_length=6, description="The OTP code received by the user")
 
 
+class PasswordResetContact(BaseModel):
+    country_code: str
+    phone_number: str
+
 class OTPDispatcherRequest(BaseModel):
     purpose: OTPPurpose = Field(..., description="The context for which the OTP is needed (e.g., LOGIN, ACTIVATION)")
     otp: Optional[str] = Field(None, min_length=4, max_length=6, description="The OTP code received by the user. Mandatory for 'verify' command.")
+    password_reset: Optional[PasswordResetContact] = None
 
 
 # RESET PASSWORD (AFTER LOGIN)
@@ -291,7 +310,7 @@ class FATCADetailsSchema(BaseModel):
 
 class UnifiedCIFRequest(BaseModel):
     Personal_details: Optional[PersonalDetailsSchema] = None
-    Resedential_details: Optional[ResidentialDetailsSchema] = None
+    Residential_details: Optional[ResidentialDetailsSchema] = None
     Employment_details: Optional[EmploymentDetailsSchema] = None
     Financial_details: Optional[FinancialDetailsSchema] = None
     Fatca_details: Optional[FATCADetailsSchema] = None

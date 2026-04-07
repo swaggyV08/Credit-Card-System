@@ -5,7 +5,7 @@ from typing import List
 from decimal import Decimal
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session, joinedload
-from fastapi import HTTPException, status
+from app.core.app_error import AppError
 
 from app.models.card_management import CCMCreditCard, CCMCreditAccount, CCMCardTransaction
 from app.models.customer import OTPCode, OTPPurpose
@@ -48,9 +48,10 @@ def _get_card_or_404(db: Session, card_id: uuid.UUID) -> CCMCreditCard:
     """Fetch a card by ID or raise 404 with a clear message."""
     card = db.query(CCMCreditCard).filter(CCMCreditCard.id == card_id).first()
     if not card:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Card not found. No card exists with ID: {card_id}"
+        raise AppError(
+            code="NOT_FOUND",
+            message=f"Card not found. No card exists with ID: {card_id}",
+            http_status=404
         )
     return card
 
@@ -68,16 +69,18 @@ class CardManagementService:
     def issue_card(db: Session, credit_account_id: uuid.UUID, request: CCMCardIssueRequest) -> dict:
         account = db.query(CCMCreditAccount).filter(CCMCreditAccount.id == credit_account_id).first()
         if not account:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Credit account not found. No account exists with ID: {credit_account_id}"
+            raise AppError(
+                code="NOT_FOUND",
+                message=f"Credit account not found. No account exists with ID: {credit_account_id}",
+                http_status=404
             )
 
         # Validate request credit_account_id matches path
         if request.credit_account_id != credit_account_id:
-            raise HTTPException(
-                status_code=400,
-                detail="credit_account_id in request body does not match the path parameter."
+            raise AppError(
+                code="INVALID_PAYLOAD",
+                message="credit_account_id in request body does not match the path parameter.",
+                http_status=400
             )
 
         card_number = generate_card_number()
@@ -118,16 +121,17 @@ class CardManagementService:
         card = _get_card_or_404(db, card_id)
 
         if card.status == CCMCardStatus.ACTIVE:
-            raise HTTPException(
-                status_code=400,
-                detail="Card is already active. No activation needed."
+            raise AppError(
+                code="ALREADY_ACTIVE",
+                message="Card is already active. No activation needed.",
+                http_status=400
             )
 
         if card.status not in [CCMCardStatus.ISSUED, CCMCardStatus.INACTIVE]:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Card cannot be activated in its current state: {card.status.value}. "
-                       "Card must be in ISSUED or INACTIVE status."
+            raise AppError(
+                code="INVALID_STATUS",
+                message=f"Card cannot be activated in its current state: {card.status.value}. Card must be in ISSUED or INACTIVE status.",
+                http_status=400
             )
 
         # Generate a unique activation_id
@@ -149,16 +153,10 @@ class CardManagementService:
         card = _get_card_or_404(db, card_id)
 
         if card.status == CCMCardStatus.ACTIVE:
-            raise HTTPException(
-                status_code=400,
-                detail="Card is already active."
-            )
+            raise AppError(code="ALREADY_ACTIVE", message="Card is already active.", http_status=400)
 
         if card.status not in [CCMCardStatus.ISSUED, CCMCardStatus.INACTIVE]:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Card cannot be activated in its current state: {card.status.value}."
-            )
+            raise AppError(code="INVALID_STATUS", message=f"Card cannot be activated in its current state: {card.status.value}.", http_status=400)
 
         # Verify that OTP was verified for this activation_id (linkage_id)
         # We rely solely on the cryptographic uniqueness of activation_id (uuid4)
@@ -169,17 +167,17 @@ class CardManagementService:
         ).order_by(OTPCode.created_at.desc()).first()
 
         if not otp_record:
-            raise HTTPException(
-                status_code=400,
-                detail="No OTP verification found for this activation_id. "
-                       "Please complete OTP verification first via POST /auth/otp/generate and POST /auth/otp/verify."
+            raise AppError(
+                code="OTP_REQUIRED",
+                message="No OTP verification found for this activation_id. Please complete OTP verification first.",
+                http_status=400
             )
 
         if not getattr(otp_record, 'is_verified', False):
-            raise HTTPException(
-                status_code=400,
-                detail="OTP has not been verified yet. "
-                       "Please verify the OTP first via POST /auth/otp/verify with this activation_id as linkage_id."
+            raise AppError(
+                code="OTP_NOT_VERIFIED",
+                message="OTP has not been verified yet. Please verify the OTP first.",
+                http_status=400
             )
 
         # Activate card and set PIN
@@ -210,16 +208,17 @@ class CardManagementService:
         card = _get_card_or_404(db, card_id)
 
         if card.status in [CCMCardStatus.TERMINATED, CCMCardStatus.REPLACED, CCMCardStatus.EXPIRED]:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Card cannot be blocked. Current status: {card.status.value}. "
-                       "Only ACTIVE or INACTIVE cards can be blocked."
+            raise AppError(
+                code="INVALID_STATUS",
+                message=f"Card cannot be blocked. Current status: {card.status.value}.",
+                http_status=400
             )
 
         if card.status in [CCMCardStatus.BLOCKED_USER, CCMCardStatus.BLOCKED_FRAUD, CCMCardStatus.BLOCKED_TEMP]:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Card is already blocked. Current status: {card.status.value}."
+            raise AppError(
+                code="ALREADY_BLOCKED",
+                message=f"Card is already blocked. Current status: {card.status.value}.",
+                http_status=400
             )
 
         old_status = card.status
@@ -245,19 +244,19 @@ class CardManagementService:
     def initiate_unblock(db: Session, card_id: uuid.UUID, request: CCMCardUnblockRequest, actor: ActorType = ActorType.USER) -> dict:
         card = _get_card_or_404(db, card_id)
 
-        if card.status not in [CCMCardStatus.BLOCKED_USER, CCMCardStatus.BLOCKED_TEMP, CCMCardStatus.BLOCKED_FRAUD]:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Card is not blocked. Current status: {card.status.value}. "
-                       "Only blocked cards can be unblocked."
+        if card.status not in [CCMCardStatus.BLOCKED_USER, CCMCardStatus.BLOCKED_TEMP, CCMCardStatus.BLOCKED_FRAUD, CCMCardStatus.BLOCKED_FRAUD]:
+            raise AppError(
+                code="INVALID_STATUS",
+                message=f"Card is not blocked. Current status: {card.status.value}.",
+                http_status=400
             )
 
         # Admin-block restriction
         if card.status == CCMCardStatus.BLOCKED_FRAUD and actor == ActorType.USER:
-            raise HTTPException(
-                status_code=403,
-                detail="This card was blocked by an administrator for security reasons. "
-                       "Only an admin can unblock this card. Please contact customer support."
+            raise AppError(
+                code="INSUFFICIENT_PERMISSIONS",
+                message="This card was blocked by an administrator for security reasons.",
+                http_status=403
             )
 
         # Generate a unique unblock_id as linkage
@@ -443,6 +442,44 @@ class CardManagementService:
         result = CardManagementService.replace_card(db, card_id, replace_req)
         result["message"] = "Card Renewal Ordered"
         return result
+
+    # -------------------------------------------------
+    # 8. FREEZE CARD
+    # -------------------------------------------------
+    @staticmethod
+    def freeze_card(db: Session, card_id: uuid.UUID) -> dict:
+        card = _get_card_or_404(db, card_id)
+        if card.status != CCMCardStatus.ACTIVE:
+            raise AppError(code="INVALID_STATUS", message=f"Only ACTIVE cards can be frozen. Current status: {card.status.value}.", http_status=400)
+        
+        old_status = card.status
+        card.status = CCMCardStatus.BLOCKED_TEMP
+        db.commit()
+        return {
+            "message": "Card Frozen Successfully",
+            "old_status": old_status,
+            "new_status": card.status,
+            "card_id": str(card_id)
+        }
+
+    # -------------------------------------------------
+    # 9. UNFREEZE CARD
+    # -------------------------------------------------
+    @staticmethod
+    def unfreeze_card(db: Session, card_id: uuid.UUID) -> dict:
+        card = _get_card_or_404(db, card_id)
+        if card.status != CCMCardStatus.BLOCKED_TEMP:
+            raise AppError(code="INVALID_STATUS", message=f"Only frozen cards can be unfrozen. Current status: {card.status.value}.", http_status=400)
+        
+        old_status = card.status
+        card.status = CCMCardStatus.ACTIVE
+        db.commit()
+        return {
+            "message": "Card Unfrozen Successfully",
+            "old_status": old_status,
+            "new_status": card.status,
+            "card_id": str(card_id)
+        }
 
     # -------------------------------------------------
     # UTILITY: Get Card Transactions

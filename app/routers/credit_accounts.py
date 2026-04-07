@@ -11,7 +11,7 @@ from app.admin.schemas.credit_account_admin import CreditAccountDetail
 from app.admin.schemas.unified_updates import AdminAccountCommand, UnifiedAccountUpdateRequest
 from app.admin.services.credit_account_admin_svc import CreditAccountAdminService
 from app.models.enums import CCMAccountStatus
-from app.core.exceptions import BankGradeException
+from app.core.app_error import AppError
 
 router = APIRouter(prefix="/credit-accounts", tags=["Admin: Credit Accounts"])
 
@@ -73,20 +73,18 @@ def update_credit_account_unified(
     provided_fields = [f for f, v in req.model_dump().items() if v is not None]
     
     if active_field not in provided_fields:
-        raise BankGradeException(
-            status_code=422,
-            code="ZBANQ-42.2-001",
+        raise AppError(
+            code="MISSING_FIELD",
             message=f"The command '{command.value}' requires the '{active_field}' field in the request body.",
-            details={"command": command.value, "required_field": active_field}
+            http_status=422
         )
         
     extra_fields = [f for f in provided_fields if f != active_field]
     if extra_fields:
-        raise BankGradeException(
-            status_code=422,
-            code="ZBANQ-42.2-002",
+        raise AppError(
+            code="INVALID_PAYLOAD",
             message=f"The command '{command.value}' doesn't accept values for these fields: {', '.join(extra_fields)}",
-            details={"command": command.value, "invalid_fields": extra_fields}
+            http_status=422
         )
 
     # 2. Dispatch to specific service methods and return appropriate response
@@ -164,6 +162,6 @@ def update_credit_account_unified(
             "overlimit_fee": str(account.overlimit_fee)
         }
     else:
-        raise BankGradeException(status_code=400, message="Invalid command")
+        raise AppError(code="INVALID_COMMAND", message="Invalid command", http_status=400)
         
     return envelope_success(result)

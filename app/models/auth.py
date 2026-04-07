@@ -12,6 +12,7 @@ class User(Base):
 
     id: Mapped[str] = mapped_column(String(20), primary_key=True)
     email: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
+    full_name: Mapped[str] = mapped_column(String, nullable=True)
     country_code: Mapped[str] = mapped_column(String, nullable=False)
     phone_number: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, default="UNVERIFIED")

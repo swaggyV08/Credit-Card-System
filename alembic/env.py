@@ -43,10 +43,10 @@ from app.models.transactions import transactions as txn_models
 from app.models.transactions import clearing as clearing_models
 from app.models.transactions import settlement as settlement_models
 from app.models.transactions import disputes as dispute_models
-from app.models.transactions import payments as payment_models
 from app.models.transactions import fees as fee_models
 from app.models.transactions import controls as control_models
-from app.models.transactions import statements as statement_models
+# Billing models (Week 5) — these define the authoritative Statement/Payment tables
+from app.models import billing as billing_models  # noqa: F401
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

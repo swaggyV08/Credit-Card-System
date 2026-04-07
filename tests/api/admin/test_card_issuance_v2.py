@@ -13,7 +13,7 @@ client = TestClient(app)
 
 # --- MOCKS ---
 mock_db = MagicMock()
-mock_admin = User(id=uuid4(), email="admin@zbanque.com", is_active=True)
+mock_admin = User(id=str(uuid4())[:20], email="admin@zbanque.com", status="ACTIVE")
 mock_admin.role = UserRole.ADMIN
 
 def override_get_db():

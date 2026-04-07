@@ -2,7 +2,7 @@ import pytest
 from decimal import Decimal
 from uuid import uuid4
 from sqlalchemy.orm import Session
-from app.services.transaction_engine import TransactionEngine
+from app.services.transaction_service import TransactionService as TransactionEngine
 from app.models.card_management import CCMCreditAccount, CCMCreditCard, CCMCardTransaction
 from app.models.enums import CCMCardStatus, CCMAccountStatus, CCMTransactionType, CCMTransactionStatus
 

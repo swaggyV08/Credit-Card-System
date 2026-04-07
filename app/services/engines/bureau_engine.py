@@ -30,7 +30,18 @@ def simulate_bureau_score(
 ) -> Dict[str, Any]:
     """
     Simulates a deterministic bureau score based on customer profile characteristics.
+    
     Formula: clamp(base_score + income_factor + employment_factor + age_factor + kyc_factor * country_factor, 300, 900)
+    
+    Args:
+        age (int): Customer age in years.
+        annual_income (float): Declared annual income.
+        employment_type (EmploymentType): Type of employment.
+        country (Country): Country of residence.
+        is_kyc_completed (bool): KYC status.
+        
+    Returns:
+        Dict[str, Any]: Bureau score data including reference ID and snapshot of factors.
     """
     
     base_score = 600
@@ -47,9 +58,6 @@ def simulate_bureau_score(
         age_factor = +40
 
     # 2. Income Factor
-    income_factor = 0
-    # Assuming income is in USD equivalent for simplicity, or we can just scale it.
-    # Let's use a generic scale where 50,000 gives +25
     income_factor = min(int((annual_income / 50000) * 25), 100) # Max +100
     
     # 3. Employment Factor

@@ -1,17 +1,20 @@
 """
 JWT token creation and decoding with UTC-aware datetimes.
 Every token contains: sub, role, jti, exp, iat, token_type.
+
+Uses PyJWT (stdlib-aligned) — compliant with the mandated tech stack.
 """
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
-from jose import jwt, JWTError
+import jwt
 from fastapi import HTTPException, status
 
 from app.core.config import settings
 
 
-def create_access_token(data: dict) -> str:
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
     Create a JWT access token.
     ``data`` must include at least ``sub`` and ``token_type``.
@@ -19,7 +22,10 @@ def create_access_token(data: dict) -> str:
     """
     to_encode = data.copy()
     now = datetime.now(timezone.utc)
-    expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    if expires_delta is not None:
+        expire = now + expires_delta
+    else:
+        expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({
         "exp": expire,
         "iat": now,
@@ -37,8 +43,13 @@ def decode_access_token(token: str) -> dict:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         return payload
-    except JWTError:
+    except jwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
+            detail={"code": "TOKEN_EXPIRED", "message": "Token has expired"},
+        )
+    except jwt.InvalidTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "INVALID_TOKEN", "message": "Invalid or expired token"},
         )

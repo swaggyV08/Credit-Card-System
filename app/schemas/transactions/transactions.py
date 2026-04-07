@@ -86,6 +86,7 @@ class TransactionSummarySchema(BaseModel):
     created_at: datetime
     fraud_score: float | None = None
     internal_flag: bool = False
+    active_holds: list["HoldSchema"] | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -103,6 +104,7 @@ class TransactionDetailSchema(TransactionSummarySchema):
     idempotency_key: str | None
     metadata_json: dict | None
     updated_at: datetime
+    dispute: Optional["DisputeSummarySchema"] = None
 
     model_config = ConfigDict(from_attributes=True)
 

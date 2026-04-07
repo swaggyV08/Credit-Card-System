@@ -11,9 +11,10 @@ from app.models.enums import (
     ApplicationStatus, ApplicationStage, AccountStatus, CardStatus, CardType,
     AMLRiskCategory, InternalRiskRating, AutoPayType
 )
+from app.models.mixins import AuditMixin
 from app.core.identifiers import generate_readable_id
 
-class CreditCardApplication(Base):
+class CreditCardApplication(Base, AuditMixin):
     __tablename__ = "credit_card_application"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -97,7 +98,7 @@ class CreditCardApplication(Base):
         return None
 
 
-class CreditAccount(Base):
+class CreditAccount(Base, AuditMixin):
     __tablename__ = "credit_account"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -138,7 +139,7 @@ class CreditAccount(Base):
     application = relationship("CreditCardApplication", back_populates="credit_account")
 
 
-class Card(Base):
+class Card(Base, AuditMixin):
     __tablename__ = "card"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 
 from app.api.deps import get_db
 from app.core.rbac import require, AuthenticatedPrincipal
 from app.schemas.base import envelope_success
+from app.core.app_error import AppError
 from app.models.auth import User
 from app.models.customer import CustomerProfile
 from app.admin.models.card_issuance import CreditAccount, Card
@@ -53,7 +54,7 @@ def get_user_admin_detail(
     """Retrieves comprehensive admin view of a user."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise AppError(code="NOT_FOUND", message="User not found", http_status=404)
 
     profile = db.query(CustomerProfile).filter(CustomerProfile.user_id == user.id).first()
     accounts = db.query(CreditAccount).filter(CreditAccount.user_id == user.id).all() if profile else []
@@ -88,8 +89,7 @@ def get_user_admin_detail(
         phone_number=user.phone_number,
         is_cif_completed=user.is_cif_completed,
         is_kyc_completed=getattr(user, "is_kyc_completed", False),
-        first_name=profile.first_name if profile else None,
-        last_name=profile.last_name if profile else None,
+        full_name=user.full_name or (f"{profile.first_name} {profile.last_name}".strip() if profile else None),
         total_credit_accounts=len(accounts),
         total_cards=total_cards,
         credit_accounts=account_details

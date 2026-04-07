@@ -28,10 +28,9 @@ class AdminUserDetailsResponse(BaseModel):
     user_id: str
     email: str
     phone_number: str
-    is_cif_completed: bool
+    full_name: Optional[str]
     is_kyc_completed: bool
-    first_name: Optional[str]
-    last_name: Optional[str]
+    is_cif_completed: bool
     
     total_credit_accounts: int
     total_cards: int

@@ -2,8 +2,8 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 from typing import Optional, Dict, Any, List
 import random
-from datetime import datetime, timezone, timedelta
-from fastapi import HTTPException
+from datetime import datetime, timezone, timedelta, date
+
 
 from app.models.enums import (
     ApplicationStatus, ApplicationStage, AccountStatus, CardStatus, CardType,
@@ -20,6 +20,7 @@ from app.models.credit import BureauReport, RiskAssessment, FraudFlag, CreditDec
 from app.models.audit import AuditLog
 from app.core.security import hash_value
 from app.core.otp import generate_otp, hash_otp, verify_otp, get_expiry_time
+from app.core.app_error import AppError
 from app.admin.schemas.card_issuance import (
     AdminKYCReviewRequest, CreditAccountManualConfig, IssueCardRequest, CardActivationRequest, SetPinRequest
 )
@@ -31,7 +32,6 @@ class CardIssuanceService:
         Run assessments BEFORE persisting the application to avoid 'rejected' junk in database.
         """
         # 1. Age calculation
-        from datetime import date
         today = date.today()
         age = today.year - cif.date_of_birth.year - (
             (today.month, today.day) < (cif.date_of_birth.month, cif.date_of_birth.day)
@@ -94,10 +94,10 @@ class CardIssuanceService:
         """
         app = db.query(CreditCardApplication).filter(CreditCardApplication.id == application_id).first()
         if not app:
-            raise HTTPException(status_code=404, detail="Application not found")
+            raise AppError(code="NOT_FOUND", message="Application not found", http_status=404)
         
         if app.application_status != ApplicationStatus.SUBMITTED:
-            raise HTTPException(status_code=400, detail=f"Cannot move to KYC_REVIEW from {app.application_status}")
+            raise AppError(code="INVALID_STATE", message=f"Cannot move to KYC_REVIEW from {app.application_status}", http_status=400)
         
         app.application_status = ApplicationStatus.KYC_REVIEW
         app.reviewed_by = admin_id
@@ -124,7 +124,7 @@ class CardIssuanceService:
         """
         app = db.query(CreditCardApplication).filter(CreditCardApplication.id == application_id).first()
         if not app:
-            raise HTTPException(status_code=404, detail="Application not found")
+            raise AppError(code="NOT_FOUND", message="Application not found", http_status=404)
 
         # Reject if already processed
         if app.application_status in [ApplicationStatus.APPROVED, ApplicationStatus.REJECTED]:
@@ -227,7 +227,7 @@ class CardIssuanceService:
     def review_application(db: Session, application_id: UUID, user_id: str, override_status: ApplicationStatus = None, rejection_reason: Optional[str] = None) -> dict:
         app = db.query(CreditCardApplication).filter(CreditCardApplication.id == application_id).first()
         if not app:
-            raise HTTPException(status_code=404, detail="Application not found")
+            raise AppError(code="NOT_FOUND", message="Application not found", http_status=404)
             
         if app.application_status in [ApplicationStatus.APPROVED, ApplicationStatus.REJECTED]:
             # IDEMPOTENCY: Only return existing if the command matches the current state
@@ -301,7 +301,7 @@ class CardIssuanceService:
         
         if override_status:
             if override_status == ApplicationStatus.REJECTED and not rejection_reason:
-                raise HTTPException(status_code=400, detail="Rejection reason is mandatory for rejection command")
+                raise AppError(code="INVALID_REQUEST", message="Rejection reason is mandatory for rejection command", http_status=400)
             app.application_status = override_status
             if rejection_reason:
                 app.rejection_reason = rejection_reason
@@ -386,10 +386,10 @@ class CardIssuanceService:
     def configure_and_create_account(db: Session, application_id: UUID, config: CreditAccountManualConfig, admin_id: UUID) -> CreditAccount:
         app = db.query(CreditCardApplication).filter(CreditCardApplication.id == application_id).first()
         if not app:
-            raise HTTPException(status_code=404, detail="Application not found")
+            raise AppError(code="NOT_FOUND", message="Application not found", http_status=404)
         
         if app.application_status != ApplicationStatus.APPROVED:
-            raise HTTPException(status_code=400, detail="Application must be in APPROVED state for configuration")
+            raise AppError(code="INVALID_STATE", message="Application must be in APPROVED state for configuration", http_status=400)
             
         existing_acc = db.query(CreditAccount).filter(CreditAccount.application_id == app.id).first()
         if existing_acc:
@@ -449,15 +449,15 @@ class CardIssuanceService:
     def issue_card_manual(db: Session, credit_account_id: UUID, request: IssueCardRequest, admin_id: UUID) -> Card:
         account = db.query(CreditAccount).filter(CreditAccount.id == credit_account_id).first()
         if not account:
-            raise HTTPException(status_code=404, detail="Credit account not found")
+            raise AppError(code="NOT_FOUND", message="Credit account not found", http_status=404)
         
         card_product = db.query(CardProductCore).filter(CardProductCore.id == request.card_product_id).first()
         if not card_product:
-            raise HTTPException(status_code=404, detail="Card product not found")
+            raise AppError(code="NOT_FOUND", message="Card product not found", http_status=404)
         
         # Validate that the requested card product is linked to the same credit product as the account
         if card_product.credit_product_id != account.credit_product_id:
-            raise HTTPException(status_code=400, detail="Card product does not match the credit account's product")
+            raise AppError(code="INVALID_REQUEST", message="Card product does not match the credit account's product", http_status=400)
             
         # IDEMPOTENCY: Check if card already exists for this account and type
         existing_card = db.query(Card).filter(
@@ -517,10 +517,10 @@ class CardIssuanceService:
         """
         card = db.query(Card).filter(Card.id == card_id).first()
         if not card:
-            raise HTTPException(status_code=404, detail="Card not found")
+            raise AppError(code="NOT_FOUND", message="Card not found", http_status=404)
         
         if card.card_status != CardStatus.INACTIVE:
-            raise HTTPException(status_code=400, detail=f"Card is already {card.card_status}")
+            raise AppError(code="INVALID_STATE", message=f"Card is already {card.card_status}", http_status=400)
             
         # Generate OTP
         otp = generate_otp()
@@ -556,10 +556,10 @@ class CardIssuanceService:
         """
         card = db.query(Card).filter(Card.id == card_id).first()
         if not card:
-            raise HTTPException(status_code=404, detail="Card not found")
+            raise AppError(code="NOT_FOUND", message="Card not found", http_status=404)
             
         if card.card_status != CardStatus.INACTIVE:
-             raise HTTPException(status_code=400, detail="Card is not in an inactive state")
+             raise AppError(code="INVALID_STATE", message="Card is not in an inactive state", http_status=400)
              
         otp_record = db.query(CardActivationOTP).filter(
             CardActivationOTP.card_id == card.id,
@@ -568,7 +568,7 @@ class CardIssuanceService:
         ).order_by(CardActivationOTP.created_at.desc()).first()
         
         if not otp_record or not verify_otp(request.otp, otp_record.otp_hash):
-             raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+             raise AppError(code="INVALID_OTP", message="Invalid or expired OTP", http_status=400)
              
         # Activate card (PIN is set separately via set-pin endpoint)
         card.card_status = CardStatus.ACTIVE
@@ -600,10 +600,10 @@ class CardIssuanceService:
         """
         card = db.query(Card).filter(Card.id == card_id).first()
         if not card:
-            raise HTTPException(status_code=404, detail="Card not found")
+            raise AppError(code="NOT_FOUND", message="Card not found", http_status=404)
         
         if card.card_status != CardStatus.ACTIVE:
-            raise HTTPException(status_code=400, detail="Card must be active to set PIN")
+            raise AppError(code="INVALID_STATE", message="Card must be active to set PIN", http_status=400)
         
         card.pin_hashed = hash_value(request.pin)
         

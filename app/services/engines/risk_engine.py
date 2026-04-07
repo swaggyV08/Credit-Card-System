@@ -8,8 +8,24 @@ def calculate_risk_assessment(
     declared_income: float
 ) -> Tuple[RiskBand, float, str]:
     """
-    Calculates the risk band based on bureau score and fraud flags.
-    Returns (RiskBand, confidence_score, explanation)
+    Calculates the final Risk Band and confidence score for an application.
+    
+    Logic:
+    1. Check for CRITICAL/HIGH fraud overrides.
+    2. Map Bureau Score to base Risk Band.
+    3. Apply income-based risk modifiers.
+    4. Apply medium-severity fraud flag modifiers.
+    
+    Args:
+        bureau_score (int): Score returned by the Bureau Engine (300-900).
+        fraud_flags (List[FraudRule]): Flags returned by the Fraud Engine.
+        declared_income (float): Income declared in the application.
+        
+    Returns:
+        Tuple[RiskBand, float, str]: 
+            - RiskBand: The assigned risk category (LOW to VERY_HIGH).
+            - float: Confidence score (0-100).
+            - str: Human-readable explanation of the assessment.
     """
     
     # 1. Immediate High/Very High Risk overrides

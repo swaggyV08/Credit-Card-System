@@ -30,6 +30,7 @@ class TransactionStatus(str, Enum):
     SETTLED = "SETTLED"
     REVERSED = "REVERSED"
     VOIDED = "VOIDED"
+    DECLINED = "DECLINED"
     DISPUTED = "DISPUTED"
     CHARGED_BACK = "CHARGED_BACK"
     DISPUTE_REJECTED = "DISPUTE_REJECTED"
@@ -152,6 +153,7 @@ class PaymentStatus(str, Enum):
 class PaymentSource(str, Enum):
     """Payment source channel."""
     BANK_ACCOUNT = "BANK_ACCOUNT"
+    BANK_TRANSFER = "BANK_TRANSFER"
     NEFT = "NEFT"
     RTGS = "RTGS"
     UPI = "UPI"
@@ -166,7 +168,9 @@ class StatementStatus(str, Enum):
     OPEN = "OPEN"
     BILLED = "BILLED"
     PAID = "PAID"
+    PARTIALLY_PAID = "PARTIALLY_PAID"
     OVERDUE = "OVERDUE"
+    WAIVED = "WAIVED"
 
 
 class LineItemType(str, Enum):
@@ -177,6 +181,8 @@ class LineItemType(str, Enum):
     PAYMENT = "PAYMENT"
     FEE = "FEE"
     INTEREST = "INTEREST"
+    INTEREST_CHARGE = "INTEREST_CHARGE"
+    CREDIT = "CREDIT"
     ADJUSTMENT = "ADJUSTMENT"
 
 

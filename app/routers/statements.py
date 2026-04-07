@@ -23,6 +23,9 @@ def list_statements(
     principal: AuthenticatedPrincipal = Depends(require("statement:read"))
 ):
     """Lists billing cycle statements. Use ?detail=true to get full details instead of using a separate endpoint."""
+    if month is not None and (month < 1 or month > 12):
+        from app.core.exceptions import AppError
+        raise AppError(code="INVALID_MONTH", message="Month must be between 1 and 12", http_status=422)
     stmts = StatementService.list_statements(db, card_id, year, month)
     total = len(stmts)
     paginated = stmts[(page - 1) * page_size : page * page_size]
@@ -43,18 +46,4 @@ def list_statements(
         "meta": {"total": total, "page": page, "page_size": page_size}
     })
 
-@router.post("/cards/{card_id}/statements/{statement_id}/exports", status_code=202)
-def export_statement(
-    card_id: uuid.UUID,
-    statement_id: uuid.UUID,
-    request: CreateExportRequest,
-    db: Session = Depends(get_db),
-    principal: AuthenticatedPrincipal = Depends(require("statement:read"))
-):
-    """Triggers async PDF/CSV export of a statement."""
-    export_job_id = uuid.uuid4()
-    return envelope_success({
-        "export_job_id": str(export_job_id),
-        "status": "QUEUED",
-        "poll_url": f"/exports/{export_job_id}",
-    })
+# DELETE: POST /cards/{card_id}/statements/{statement_id}/exports removed as per directive.

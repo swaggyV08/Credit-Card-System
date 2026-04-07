@@ -1,3 +1,11 @@
+"""
+Payments Router — Week 5 Enhanced
+
+Endpoints:
+  POST  /cards/{card_id}/payments     — Make payment with RBI waterfall
+  GET   /cards/{card_id}/payments     — List payments with status filter
+  PATCH /payments/{payment_id}        — Confirm / reverse a payment
+"""
 import uuid
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
@@ -6,22 +14,51 @@ from app.api.deps import get_db
 from app.core.rbac import require, AuthenticatedPrincipal
 from app.schemas.base import envelope_success
 
-from app.models.transactions.payments import Payment
-from app.schemas.transactions.operations import CreatePaymentRequest, PaymentSchema, PaymentCommandRequest
-from app.services.transactions.operations_service import PaymentService
+from app.models.billing import Payment
+from app.models.transactions.enums import PaymentStatus
+from app.schemas.billing import PaymentCreateRequest, PaymentResponse
+from app.schemas.transactions.operations import PaymentSchema, PaymentCommandRequest
+from app.services.payment_service import PaymentWaterfallService
+from app.services.transactions.operations_service import PaymentService as LegacyPaymentService
+from app.models.card_management import CCMCreditAccount, CCMCreditCard
+from app.core.exceptions import PaymentExceedsBalanceError
 
 router = APIRouter(tags=["Payments"])
+
 
 @router.post("/cards/{card_id}/payments", status_code=201)
 def create_payment(
     card_id: uuid.UUID,
-    request: CreatePaymentRequest,
+    request: PaymentCreateRequest,
     db: Session = Depends(get_db),
-    principal: AuthenticatedPrincipal = Depends(require("payment:make"))
+    principal: AuthenticatedPrincipal = Depends(require("payment:make")),
 ):
-    """Cardholder payment towards credit card outstanding balance."""
-    result = PaymentService.create_payment(db, card_id, request, actor_id=principal.user_id)
-    return envelope_success(result.model_dump(mode='json') if hasattr(result, 'model_dump') else result)
+    """
+    Cardholder payment with RBI-mandated waterfall allocation.
+
+    Allocation order:
+    1. Fees & Charges
+    2. Interest
+    3. Cash Advance Principal
+    4. Purchase Principal
+    """
+    # Validation: Payment exceeds balance check
+    account = db.query(CCMCreditAccount).join(CCMCreditCard, CCMCreditCard.credit_account_id == CCMCreditAccount.id).filter(CCMCreditCard.id == card_id).first()
+    if account and request.amount > account.outstanding_amount:
+        raise PaymentExceedsBalanceError(outstanding=account.outstanding_amount, payment=request.amount)
+
+    payment = PaymentWaterfallService.process_payment(
+        db=db,
+        card_id=card_id,
+        amount=request.amount,
+        payment_source=request.payment_source,
+        reference_no=request.reference_no,
+        payment_date=request.payment_date,
+        created_by=principal.user_id if hasattr(principal, "user_id") else None,
+    )
+    data = PaymentResponse.model_validate(payment).model_dump(mode="json")
+    return envelope_success(data)
+
 
 @router.get("/cards/{card_id}/payments")
 def list_payments(
@@ -30,38 +67,22 @@ def list_payments(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
-    principal: AuthenticatedPrincipal = Depends(require("payment:read"))
+    principal: AuthenticatedPrincipal = Depends(require("payment:read")),
 ):
     """Lists all payments on the card account with status and date filters."""
     query = db.query(Payment).filter(Payment.card_id == card_id)
     if status:
         query = query.filter(Payment.status == status)
     total = query.count()
-    results = query.order_by(Payment.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
-    data = [PaymentSchema.model_validate(p).model_dump(mode='json') for p in results]
-    
+    results = query.order_by(Payment.created_at.desc()).offset(
+        (page - 1) * page_size
+    ).limit(page_size).all()
+    data = [PaymentResponse.model_validate(p).model_dump(mode="json") for p in results]
+
     return envelope_success({
         "data": data,
-        "meta": {"total": total, "page": page, "page_size": page_size}
+        "meta": {"total": total, "page": page, "page_size": page_size},
     })
 
-@router.patch("/payments/{payment_id}")
-def transition_payment(
-    payment_id: uuid.UUID,
-    command: str = Query(..., description="confirm | reverse"),
-    body: PaymentCommandRequest = None,
-    db: Session = Depends(get_db),
-    principal: AuthenticatedPrincipal = Depends(require("payment:make"))
-):
-    """Payment state machine transitions (confirm | reverse)."""
-    body = body or PaymentCommandRequest()
-    if command == "confirm":
-        payment = PaymentService.confirm_payment(db, payment_id, actor_id=principal.user_id)
-    elif command == "reverse":
-        reason = body.reason or "Payment reversal"
-        payment = PaymentService.reverse_payment(db, payment_id, reason, actor_id=principal.user_id)
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown command: '{command}'. Supported: confirm, reverse")
-        
-    data = PaymentSchema.model_validate(payment).model_dump(mode='json')
-    return envelope_success(data)
+
+# DELETE: PATCH /payments/{payment_id} removed as per directive.

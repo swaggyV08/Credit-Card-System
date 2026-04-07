@@ -39,7 +39,9 @@ from app.admin.models.card_issuance import (
 
 # Credit Base Models Layer
 from app.models.credit import (
-    BureauReport, RiskAssessment, FraudFlag, CreditDecision
+    BureauReport, RiskAssessment,
+    FraudFlag as ApplicationFraudFlag,   # application-level fraud flags
+    CreditDecision,
 )
 
 # Credit Card Management Layer (CCM)
@@ -50,3 +52,10 @@ from app.models.card_management import (
 
 # Audit Layer
 from app.models.audit import AuditLog
+
+# Billing Layer (Week 5)
+from app.models.billing import (
+    Statement, StatementLineItem, Payment,
+    FraudFlag as TransactionFraudFlag,   # transaction-level fraud flags
+    IdempotencyKey,
+)

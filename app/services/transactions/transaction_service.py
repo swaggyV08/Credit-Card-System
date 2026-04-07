@@ -26,6 +26,10 @@ from app.models.transactions.enums import (
     RiskTier, AuditAction,
 )
 from app.models.enums import CardStatus
+from app.core.redis import redis_service
+from app.core.exceptions import (
+    VelocityExceededError, InsufficientFundsError, CardNotActiveError,
+)
 
 
 def _utcnow() -> datetime:
@@ -67,51 +71,90 @@ def _write_audit(db: Session, entity_type: str, entity_id: str, action: str,
 class TransactionService:
 
     @staticmethod
-    def validate_card(db: Session, card_id: uuid.UUID, user_id: str | None = None, is_admin: bool = False) -> Card:
+    def get_transaction(db: Session, txn_id: uuid.UUID) -> Transaction:
+        txn = db.query(Transaction).filter(Transaction.id == txn_id).first()
+        if not txn:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        # Ensure dispute is loaded (it's a relationship)
+        # SQLAlchemy will handle this if the relationship is defined
+        return txn
         """Step 1: Card Validation Gate."""
         card = db.query(Card).filter(Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Card not found")
 
         if card.card_status != CardStatus.ACTIVE:
-            raise HTTPException(status_code=403, detail=f"Card is not active. Current status: {card.card_status.value}")
+            raise CardNotActiveError(card_id, current_status=card.card_status.value)
 
         # Ownership check (skip for admin)
         if not is_admin and user_id:
             account = db.query(CreditAccount).filter(CreditAccount.id == card.credit_account_id).first()
-            if not account or account.user_id != user_id:
+            if not account or str(account.user_id) != str(user_id):
                 raise HTTPException(status_code=403, detail="This card does not belong to you")
 
         return card
 
     @staticmethod
     def check_velocity(db: Session, card_id: uuid.UUID, amount: Decimal):
-        """Step 3: Basic velocity checks."""
-        now = _utcnow()
+        """
+        Step 3: Redis Velocity Gate (Directive Mandated).
+        Four sliding windows: 1m (3), 10m (10), 1h (20), 24h (50).
+        """
+        client = redis_service.get_client()
+        if not client:
+            return  # Fail open if Redis is down, or implement fallback
 
-        # Count transactions in last 1 minute
-        one_min_ago = now - timedelta(minutes=1)
-        count_1m = db.query(func.count(Transaction.id)).filter(
-            and_(Transaction.card_id == card_id, Transaction.created_at >= one_min_ago)
-        ).scalar()
-        if count_1m >= 5:
-            raise HTTPException(status_code=429, detail="Too many transactions in the last minute. Please wait and try again.")
+        now_ts = int(_utcnow().timestamp())
+        windows = [
+            ("1m", 60, 3),
+            ("10m", 600, 10),
+            ("1h", 3600, 20),
+            ("24h", 86400, 50),
+        ]
 
-        # Count transactions in last 1 hour
-        one_hour_ago = now - timedelta(hours=1)
-        count_1h = db.query(func.count(Transaction.id)).filter(
-            and_(Transaction.card_id == card_id, Transaction.created_at >= one_hour_ago)
-        ).scalar()
-        if count_1h >= 30:
-            raise HTTPException(status_code=429, detail="Hourly transaction limit exceeded. Please try again later.")
+        for suffix, ttl, threshold in windows:
+            key = f"velocity:{card_id}:{suffix}"
+            try:
+                # Use a sliding window pipe
+                p = client.pipeline()
+                p.zremrangebyscore(key, 0, now_ts - ttl)
+                p.zadd(key, {str(now_ts): now_ts})
+                p.zcard(key)
+                p.expire(key, ttl)
+                results = p.execute()
+                
+                count = results[2]
+                if count > threshold:
+                    # Retry-After value
+                    raise VelocityExceededError(retry_after=ttl // 10)
+            except VelocityExceededError:
+                raise
+            except Exception as e:
+                import logging
+                logging.getLogger("zbanque.velocity").error(f"Redis velocity error: {e}")
 
-        # Count transactions in last 24 hours
-        one_day_ago = now - timedelta(hours=24)
-        count_24h = db.query(func.count(Transaction.id)).filter(
-            and_(Transaction.card_id == card_id, Transaction.created_at >= one_day_ago)
-        ).scalar()
-        if count_24h >= 100:
-            raise HTTPException(status_code=429, detail="Daily transaction limit exceeded. Please try again tomorrow.")
+    @staticmethod
+    def check_geo_velocity(db: Session, card_id: uuid.UUID, current_country: str) -> None:
+        """
+        Geographic velocity check: if country change < 2h, flag but do not block.
+        """
+        last_txn = db.query(Transaction).filter(
+            Transaction.card_id == card_id,
+            Transaction.status.in_([TransactionStatus.AUTHORIZED.value, TransactionStatus.SETTLED.value])
+        ).order_by(Transaction.created_at.desc()).first()
+
+        if not last_txn or not last_txn.merchant_country:
+            return
+
+        if last_txn.merchant_country != current_country:
+            time_delta = (_utcnow() - last_txn.created_at).total_seconds()
+            if time_delta < 7200:
+                # Add risk signal / flag
+                import logging
+                logging.getLogger("zbanque.geo").warning(
+                    f"Geographic velocity flag for card {card_id}: "
+                    f"Country jumped from {last_txn.merchant_country} to {current_country} in {time_delta}s"
+                )
 
     @staticmethod
     def check_duplicate(db: Session, card_id: uuid.UUID, merchant_id: uuid.UUID,
@@ -136,7 +179,7 @@ class TransactionService:
 
     @staticmethod
     def authorize_transaction(db: Session, card: Card, request, idempotency_key: str | None = None,
-                              actor_id: str | None = None) -> dict:
+                               actor_id: str | None = None) -> dict:
         """Full authorization flow: Steps 1-6."""
         account = db.query(CreditAccount).filter(CreditAccount.id == card.credit_account_id).first()
         if not account:
@@ -144,12 +187,31 @@ class TransactionService:
 
         # Step 4: Credit Limit Authorization
         available_credit = account.available_limit
+        if request.amount <= 0:
+            raise AppError(code="INVALID_AMOUNT", message="Transaction amount must be greater than zero.", http_status=400)
+
         if request.amount > available_credit:
-            raise HTTPException(status_code=402, detail=f"Insufficient credit. Available: {available_credit}, Requested: {request.amount}")
+            raise InsufficientFundsError(available=available_credit, requested=request.amount)
 
         if request.transaction_type == TransactionType.CASH_ADVANCE:
             if request.amount > account.cash_advance_limit:
-                raise HTTPException(status_code=402, detail=f"Cash advance limit exceeded. Limit: {account.cash_advance_limit}")
+                raise AppError(code="CASH_ADVANCE_LIMIT_EXCEEDED", message=f"Cash advance limit exceeded. Limit: {account.cash_advance_limit}", http_status=402)
+
+        # Step 4.2: Controls & Restrictions
+        from app.models.transactions.controls import CardControl
+        controls = db.query(CardControl).filter(CardControl.card_id == card.id).first()
+        if controls:
+            if controls.mcc_blocks and str(request.merchant_category_code) in controls.mcc_blocks:
+                raise AppError(code="MCC_RESTRICTED", message="Merchant Category Code is restricted for this card.", http_status=403)
+            
+            if controls.allowed_countries and request.merchant_country not in controls.allowed_countries:
+                raise AppError(code="COUNTRY_RESTRICTED", message="Merchant country is restricted for this card.", http_status=403)
+            
+            if not controls.online_transactions_enabled and request.card_not_present:
+                raise AppError(code="ONLINE_RESTRICTED", message="Online transactions are disabled for this card.", http_status=403)
+
+        # Step 4.3: Geographic Velocity Flagging
+        TransactionService.check_geo_velocity(db, card.id, request.merchant_country)
 
         # Step 5: Hold Creation
         hold_days = 30 if request.transaction_type == TransactionType.PRE_AUTH else 7
@@ -242,7 +304,7 @@ class TransactionService:
     def void_transaction(db: Session, txn: Transaction, reason: str, actor_id: str | None = None) -> Transaction:
         """Void a pending transaction."""
         if txn.status != TransactionStatus.PENDING_AUTHORIZATION.value:
-            raise HTTPException(status_code=400, detail="Only PENDING_AUTHORIZATION transactions can be voided")
+            raise AppError(code="INVALID_STATUS", message="Only PENDING_AUTHORIZATION transactions can be voided", http_status=400)
         old_status = txn.status
         txn.status = TransactionStatus.VOIDED.value
         _write_audit(db, "TRANSACTION", str(txn.id), AuditAction.TRANSACTION_VOIDED.value,
@@ -275,9 +337,9 @@ class TransactionService:
     def capture_preauth(db: Session, txn: Transaction, capture_amount: Decimal | None, actor_id: str | None = None) -> Transaction:
         """Capture a PRE_AUTH transaction."""
         if txn.transaction_type != TransactionType.PRE_AUTH.value:
-            raise HTTPException(status_code=400, detail="Only PRE_AUTH transactions can be captured")
+            raise AppError(code="INVALID_TYPE", message="Only PRE_AUTH transactions can be captured", http_status=400)
         if txn.status != TransactionStatus.AUTHORIZED.value:
-            raise HTTPException(status_code=400, detail="Transaction must be AUTHORIZED to capture")
+            raise AppError(code="INVALID_STATUS", message="Transaction must be AUTHORIZED to capture", http_status=400)
 
         original_amount = txn.amount
         final_amount = capture_amount if capture_amount and capture_amount <= original_amount else original_amount

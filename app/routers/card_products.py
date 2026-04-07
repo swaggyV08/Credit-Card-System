@@ -1,16 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, status, Query, Path
 from sqlalchemy.orm import Session
 from uuid import UUID
-from typing import Optional
+from typing import Optional, Literal, List
+from datetime import datetime, timezone
 
 from app.api.deps import get_db
 from app.core.rbac import require, AuthenticatedPrincipal
-from app.schemas.base import envelope_success
+from app.schemas.base import envelope_success, build_pagination
 from app.models.enums import ProductStatus
 from app.admin.schemas.card_product import (
     CardProductCreate, 
     CardProductApprovalRequest
 )
+from app.schemas.card_product import CardProductSummaryResponse
 from app.admin.models.card_product import (
     CardProductCore, CardBillingConfiguration, CardTransactionControls,
     CardUsageLimits, CardRewardsConfiguration, CardAuthorizationRules,
@@ -19,10 +21,11 @@ from app.admin.models.card_product import (
 )
 from app.admin.models.credit_product import CreditProductInformation
 from app.admin.services.card_product_svc import CardProductService
+from app.core.app_error import AppError
 
 router = APIRouter(prefix="/card-products", tags=["Card Products"])
 
-@router.post("/", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 def create_card_product(
     data: CardProductCreate,
     db: Session = Depends(get_db),
@@ -31,7 +34,7 @@ def create_card_product(
     """Creates a new Card Product linked to an existing Credit Product."""
     credit_product = db.query(CreditProductInformation).filter(CreditProductInformation.product_code == data.credit_product_code).first()
     if not credit_product:
-        raise HTTPException(status_code=404, detail="Credit Product not found")
+        raise AppError(code="NOT_FOUND", message="Credit Product not found", http_status=404)
         
     card = CardProductCore(
         credit_product_id=credit_product.id,
@@ -56,7 +59,7 @@ def create_card_product(
     
     gov = CardProductGovernance(
         card_product_id=card.id,
-        created_by=principal.user_id
+        created_by=UUID(principal.user_id)
     )
     db.add(gov)
     
@@ -73,52 +76,51 @@ def create_card_product(
         "created_by": gov.created_by
     })
 
-@router.get("/")
-def get_card_products(
-    command: str = Query("all", description="Command: 'all' to list, 'by_id' requiring card_product_id"),
-    card_product_id: Optional[UUID] = None,
-    status_filter: Optional[ProductStatus] = None,
-    skip: int = 0,
-    limit: int = 100,
+@router.get("")
+def list_card_products(
+    status_filter: Optional[Literal["DRAFT","ACTIVE","SUSPENDED","CLOSED","REJECTED"]] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require("card_product:read"))
 ):
-    """Retrieves Card Products using a unified command interface (all | by_id)."""
-    if command == "by_id":
-        if not card_product_id:
-            raise HTTPException(status_code=400, detail="card_product_id is required when command is by_id")
-        result = CardProductService.get_card(db, card_product_id)
-        if not result:
-            raise HTTPException(status_code=404, detail="Card Product not found")
-        # Ensure conversion to dict using Pydantic's model_dump if it's a Pydantic model
-        result_dict = result.model_dump(mode='json') if hasattr(result, 'model_dump') else result
-        return envelope_success(result_dict)
+    """
+    Retrieves all available Card Products with pagination.
+    Supports filtering by lifecycle status.
+    """
+    results = CardProductService.get_all_cards(
+        db, 
+        status=status_filter, 
+        skip=(page - 1) * limit, 
+        limit=limit
+    )
+    total = CardProductService.count_all_cards(db, status=status_filter)
     
-    elif command == "all":
-        results = CardProductService.get_all_cards(db, status=status_filter, skip=skip, limit=limit)
-        results_list = [r.model_dump(mode='json') if hasattr(r, 'model_dump') else r for r in results]
-        return envelope_success(results_list)
-    else:
-        raise HTTPException(status_code=400, detail="Invalid command. Use 'all' or 'by_id'.")
+    # Map to schema
+    items = [CardProductSummaryResponse.model_validate(r) for r in results]
+    
+    return envelope_success({
+        "items": items,
+        "pagination": build_pagination(total, page, limit)
+    })
 
 @router.post("/{card_product_id}")
 def approve_card_product(
     card_product_id: UUID, 
-    command: str,
+    command: str = Query(..., description="Action: 'approve'"),
     data: Optional[CardProductApprovalRequest] = None,
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require("card_product:approve"))
 ):
     """Transitions a Card Product's lifecycle status via the `command` query parameter. Commands: `approve`."""
     if command != "approve":
-        raise HTTPException(status_code=400, detail="Invalid command. Currently only 'approve' is supported.")
+        raise AppError(code="INVALID_COMMAND", message="Invalid command. Currently only 'approve' is supported.", http_status=400)
     
     effective_to = None
     if data and data.effective_to:
-        from datetime import datetime
-        effective_to = datetime(data.effective_to.year, data.effective_to.month, data.effective_to.day)
+        effective_to = datetime(data.effective_to.year, data.effective_to.month, data.effective_to.day, tzinfo=timezone.utc)
 
-    card = CardProductService.approve_card_product(db, card_product_id, principal.user_id, effective_to)
+    card = CardProductService.approve_card_product(db, card_product_id, UUID(principal.user_id), effective_to)
     gov = card.governance
     
     return envelope_success({
@@ -140,3 +142,4 @@ def delete_card_product(
     """Permanently deletes a Card Product and all its associated configurations."""
     CardProductService.delete_card_product(db, card_product_id)
     return envelope_success({"message": "Card Product permanently deleted"})
+

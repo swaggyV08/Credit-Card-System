@@ -3,9 +3,11 @@ Global response schemas used by every endpoint.
 """
 import uuid
 from datetime import datetime, timezone
-from typing import Generic, TypeVar, Optional, Literal
+from typing import Generic, TypeVar, Optional, Literal, List
 
 from pydantic import BaseModel, Field, ConfigDict
+
+from app.core.constants import API_VERSION
 
 T = TypeVar("T")
 
@@ -21,14 +23,14 @@ class MetaSchema(BaseModel):
     timestamp: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
-    api_version: str = "1.0.0"
+    api_version: str = API_VERSION
 
 
 class ResponseEnvelope(BaseModel, Generic[T]):
     status: Literal["success", "error"]
     data: Optional[T] = None
     meta: MetaSchema = Field(default_factory=MetaSchema)
-    errors: list[ErrorDetail] = []
+    errors: List[ErrorDetail] = Field(default_factory=list)
 
 
 class AuditMixin(BaseModel):
@@ -49,25 +51,25 @@ class PaginationSchema(BaseModel):
 
 # ── Helper functions for building responses ───────────────────────
 
-def envelope_success(data, meta: Optional[MetaSchema] = None) -> dict:
-    """Build a success envelope dict."""
+def envelope_success(data) -> dict:
+    """Build a success envelope dict with meta and empty errors."""
     return {
         "status": "success",
         "data": data,
-        "meta": (meta or MetaSchema()).model_dump(),
+        "meta": MetaSchema().model_dump(),
         "errors": [],
     }
 
 
 def envelope_error(
-    errors: list[ErrorDetail],
-    meta: Optional[MetaSchema] = None,
+    errors: List[ErrorDetail],
+    status_code: int = 400,
 ) -> dict:
-    """Build an error envelope dict."""
+    """Build an error envelope dict with meta and error list."""
     return {
         "status": "error",
         "data": None,
-        "meta": (meta or MetaSchema()).model_dump(),
+        "meta": MetaSchema().model_dump(),
         "errors": [e.model_dump() for e in errors],
     }
 

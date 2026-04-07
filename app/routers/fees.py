@@ -8,28 +8,13 @@ from app.schemas.base import envelope_success
 
 from app.schemas.transactions.operations import FeeSchema, CreateFeeRequest, FeeWaiveRequest, InterestPostRequest
 from app.services.transactions.operations_service import FeeService
+from app.core.exceptions import (
+    FeeNotFoundError, FeeAlreadyWaivedError,
+)
 
 router = APIRouter(tags=["Fees & Interest"])
 
-@router.get("/cards/{card_id}/fees")
-def list_fees(
-    card_id: uuid.UUID,
-    fee_type: str | None = None,
-    waived: bool | None = None,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db),
-    principal: AuthenticatedPrincipal = Depends(require("transaction:read"))
-):
-    """Returns all fee events applied to the card account with optional filters."""
-    fees = FeeService.list_fees(db, card_id, fee_type, waived)
-    total = len(fees)
-    paginated = fees[(page - 1) * page_size : page * page_size]
-    data = [FeeSchema.model_validate(f).model_dump(mode='json') for f in paginated]
-    return envelope_success({
-        "data": data,
-        "meta": {"total": total, "page": page, "page_size": page_size}
-    })
+# DELETE: GET /cards/{card_id}/fees removed as per directive.
 
 @router.post("/cards/{card_id}/fees", status_code=201)
 def manage_fee(
@@ -59,20 +44,16 @@ def manage_fee(
         if not waive_request:
             raise HTTPException(status_code=422, detail="waive_request body is required for 'waive' command")
         
+        # Validation: min 10 chars for waiver_reason
+        if len(waive_request.waiver_reason) < 10:
+            raise HTTPException(status_code=422, detail="waiver_reason must be at least 10 characters")
+
         fee = FeeService.waive_fee(db, fee_id, waive_request.waiver_reason, actor_id=principal.user_id)
+        if not fee:
+            raise FeeNotFoundError()
         data = FeeSchema.model_validate(fee).model_dump(mode='json')
         return envelope_success(data)
     else:
         raise HTTPException(status_code=400, detail=f"Unknown command: '{command}'")
 
-@router.post("/cards/{card_id}/interest", status_code=201)
-def post_interest(
-    card_id: uuid.UUID,
-    request: InterestPostRequest,
-    db: Session = Depends(get_db),
-    principal: AuthenticatedPrincipal = Depends(require("fee:apply"))
-):
-    """System-only: calculates and posts monthly interest using DPR formula."""
-    fee = FeeService.post_interest(db, card_id, request, actor_id=principal.user_id)
-    data = FeeSchema.model_validate(fee).model_dump(mode='json')
-    return envelope_success(data)
+# DELETE: POST /interest logic absorbed or removed as per directive.

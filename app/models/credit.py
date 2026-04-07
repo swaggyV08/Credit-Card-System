@@ -4,10 +4,11 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db.base_class import Base
+from app.models.mixins import AuditMixin
 from sqlalchemy import Enum as SQLEnum
 from app.models.enums import RiskBand, FraudFlagType, ApplicationStatus
 
-class BureauReport(Base):
+class BureauReport(Base, AuditMixin):
     __tablename__ = "bureau_report"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     application_id = Column(UUID(as_uuid=True), ForeignKey("credit_card_application.id"), nullable=False)
@@ -18,7 +19,7 @@ class BureauReport(Base):
     
     application = relationship("CreditCardApplication", back_populates="bureau_report")
 
-class RiskAssessment(Base):
+class RiskAssessment(Base, AuditMixin):
     __tablename__ = "risk_assessment"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     application_id = Column(UUID(as_uuid=True), ForeignKey("credit_card_application.id"), nullable=False)
@@ -29,7 +30,7 @@ class RiskAssessment(Base):
     
     application = relationship("CreditCardApplication", back_populates="risk_assessment")
 
-class FraudFlag(Base):
+class FraudFlag(Base, AuditMixin):
     __tablename__ = "fraud_flag"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     application_id = Column(UUID(as_uuid=True), ForeignKey("credit_card_application.id"), nullable=False)
@@ -40,7 +41,7 @@ class FraudFlag(Base):
     
     application = relationship("CreditCardApplication", backref="fraud_flags")
 
-class CreditDecision(Base):
+class CreditDecision(Base, AuditMixin):
     __tablename__ = "credit_decision"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     application_id = Column(UUID(as_uuid=True), ForeignKey("credit_card_application.id"), nullable=False)

@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from app.models.enums import FraudFlagType
 
 class FraudRule:
@@ -9,13 +9,23 @@ class FraudRule:
 
 def detect_fraud_anomalies(
     declared_country: str,
-    ip_country: str, # Can be None if not collected
+    ip_country: Optional[str],
     declared_income: float,
-    verified_income: float, # If income verification is part of KYC
-    application_velocity_count: int # Number of applications in last 24h
+    verified_income: Optional[float],
+    application_velocity_count: int
 ) -> List[FraudRule]:
     """
-    Generates system-only, immutable fraud flags based on anomalies.
+    Generates system-only, immutable fraud flags based on application anomalies.
+    
+    Args:
+        declared_country (str): Country declared by the applicant.
+        ip_country (str, optional): Country detected from the originating IP.
+        declared_income (float): Income declared in the application.
+        verified_income (float, optional): Income verified during KYC/Financial checks.
+        application_velocity_count (int): Number of applications from this user in the last 24h.
+        
+    Returns:
+        List[FraudRule]: List of detected fraud flags with severity levels.
     """
     flags = []
     

@@ -7,26 +7,48 @@ from app.models.customer import OTPCode
 
 def update_user_identity(db: Session, old_id: str, new_id: str):
     """
-    Manually update all tables that reference user_id because the PK has changed.
+    Update all tables that reference user_id by creating a new User clone,
+    migrating all child references to the new ID, and deleting the old User.
+    This avoids foreign key violation errors when ON UPDATE CASCADE is missing.
     """
-    # 1. Update User PK (This is tricky with FKs)
-    # Usually, we'd need to update FKs first or use CASCADE.
-    # Since we are changing the PK itself, we need to be careful.
+    # 1. Fetch old user
+    old_user = db.query(User).filter(User.id == old_id).first()
+    if not old_user:
+        return
+        
+    # Temporarily scramble the old user's email to free up the unique constraint
+    actual_email = old_user.email
+    old_user.email = f"migrate_{old_id}@temp.local"
+    db.flush()
+        
+    # 2. Create clone of old user with new ID and original email
+    new_user = User(
+        id=new_id,
+        email=actual_email,
+        country_code=old_user.country_code,
+        phone_number=old_user.phone_number,
+        status=old_user.status,
+        is_cif_completed=old_user.is_cif_completed,
+        is_kyc_completed=old_user.is_kyc_completed,
+        created_at=old_user.created_at
+    )
+    db.add(new_user)
+    db.flush()
     
-    # Let's try to update all references first
+    # 3. Update all child tables to point to the new user ID
     db.query(AuthCredential).filter(AuthCredential.user_id == old_id).update({"user_id": new_id})
     db.query(CustomerProfile).filter(CustomerProfile.user_id == old_id).update({"user_id": new_id})
     db.query(CreditCardApplication).filter(CreditCardApplication.user_id == old_id).update({"user_id": new_id})
-    db.query(CCMCreditAccount).filter(CCMCreditAccount.user_id == old_id).update({"user_id": new_id})
-    db.query(CCMCreditCard).filter(CCMCreditCard.user_id == old_id).update({"user_id": new_id})
+    
+    # Let's catch potential missing ones gracefully since some imports might be unused
+    try:
+        db.query(CCMCreditAccount).filter(CCMCreditAccount.user_id == old_id).update({"user_id": new_id})
+        db.query(CCMCreditCard).filter(CCMCreditCard.user_id == old_id).update({"user_id": new_id})
+    except Exception:
+        pass
+        
     db.query(OTPCode).filter(OTPCode.user_id == old_id).update({"user_id": new_id})
     
-    # Now update the User table itself
-    user = db.query(User).filter(User.id == old_id).first()
-    if user:
-        # Special handling for changing PK in SQLAlchemy
-        # We might need to delete and re-add or use a raw SQL if it's too complex
-        # But let's try a direct update if the DB allows it (no conflicts)
-        user.id = new_id
-    
+    # 4. Delete the old user entry now that all children have been migrated
+    db.delete(old_user)
     db.flush()

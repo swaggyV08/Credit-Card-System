@@ -64,6 +64,9 @@ class Transaction(Base):
     card_not_present: Mapped[bool] = mapped_column(Boolean, default=False)
     installments: Mapped[int | None] = mapped_column(nullable=True)
 
+    risk_flag: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    risk_notes: Mapped[str | None] = mapped_column(String, nullable=True)
+
     # Linkage
     parent_txn_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("transactions.id"), nullable=True
@@ -88,6 +91,14 @@ class Transaction(Base):
 
     # Relationships
     holds: Mapped[list["CreditHold"]] = relationship(back_populates="transaction", lazy="selectin")
+    dispute: Mapped[Optional["Dispute"]] = relationship(
+        "Dispute",
+        primaryjoin="and_(Transaction.id == Dispute.transaction_id, Dispute.status != 'WITHDRAWN')",
+        backref="transaction",
+        uselist=False,
+        viewonly=True,
+        lazy="selectin"
+    )
 
     __table_args__ = (
         Index("ix_txn_card_created", "card_id", "created_at"),

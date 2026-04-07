@@ -19,18 +19,17 @@ from app.admin.schemas.credit_account_admin import (
     RiskFlagUpdateRequest, InterestUpdateRequest,
     OverlimitConfigRequest, ManualAdjustmentRequest
 )
-from app.core.exceptions import BankGradeException
+from app.core.app_error import AppError
 
 class CreditAccountAdminService:
     @staticmethod
     def get_account(db: Session, account_id: UUID) -> CCMCreditAccount:
         account = db.query(CCMCreditAccount).filter(CCMCreditAccount.id == account_id).first()
         if not account:
-            raise BankGradeException(
-                status_code=404,
-                code="ZBANQ-40.4-002",
+            raise AppError(
+                code="NOT_FOUND",
                 message="Credit account not found",
-                details={"account_id": str(account_id)}
+                http_status=404
             )
         # Populate extra fields for response schema
         response_dict = CreditAccountDetail.model_validate(account).model_dump()
@@ -99,13 +98,13 @@ class CreditAccountAdminService:
         
         # Auto-generate effective_from using nested structure
         try:
-            effective_from = datetime(req.effective_from.Year, req.effective_from.Month, req.effective_from.Date)
+            from datetime import timezone
+            effective_from = datetime(req.effective_from.Year, req.effective_from.Month, req.effective_from.Date, tzinfo=timezone.utc)
         except ValueError as e:
-            raise BankGradeException(
-                status_code=400,
-                code="ZBANQ-40.0-003",
+            raise AppError(
+                code="INVALID_DATE",
                 message=f"Invalid date for effective_from: {str(e)}",
-                details={"Year": req.effective_from.Year, "Month": req.effective_from.Month, "Date": req.effective_from.Date}
+                http_status=400
             )
 
         account.credit_limit = new_limit
@@ -142,14 +141,10 @@ class CreditAccountAdminService:
         }
         
         if new_status not in valid_transitions.get(old_status, []):
-            raise BankGradeException(
-                status_code=400,
-                code="ZBANQ-40.0-002",
-                message="Invalid account status transition",
-                details={
-                    "current_status": old_status.value,
-                    "target_status": new_status.value
-                }
+            raise AppError(
+                code="INVALID_TRANSITION",
+                message=f"Invalid account status transition from {old_status.value} to {new_status.value}",
+                http_status=400
             )
             
         account.status = new_status

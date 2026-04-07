@@ -16,10 +16,10 @@ client = TestClient(app)
 
 # --- GLOBAL MOCKS ---
 mock_db = MagicMock()
-mock_admin = User(id=uuid4(), email="tester_admin@zbanque.com", is_active=True)
+mock_admin = User(id=str(uuid4())[:20], email="tester_admin@zbanque.com", status="ACTIVE")
 mock_admin.role = UserRole.ADMIN
 
-mock_customer = User(id=uuid4(), email="customer@zbanque.com", is_active=True)
+mock_customer = User(id=str(uuid4())[:20], email="customer@zbanque.com", status="ACTIVE")
 mock_customer.role = UserRole.USER
 
 def override_get_db():

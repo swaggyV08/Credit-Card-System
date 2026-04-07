@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 from typing import Optional, List
-from sqlalchemy import String, Boolean, Date, DateTime, ForeignKey, Numeric, Integer
+from sqlalchemy import String, Boolean, Date, DateTime, ForeignKey, Numeric, Integer, LargeBinary
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -111,6 +111,8 @@ class CustomerAddress(Base):
     years_at_address: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), onupdate=func.now())
+    updated_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     customer_profile: Mapped["CustomerProfile"] = relationship("CustomerProfile", back_populates="addresses")
 
@@ -130,6 +132,8 @@ class EmploymentDetail(Base):
     annual_income: Mapped[Optional[float]] = mapped_column(Numeric(15, 2))
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), onupdate=func.now())
+    updated_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     customer_profile: Mapped["CustomerProfile"] = relationship("CustomerProfile", back_populates="employment_detail")
 
@@ -151,6 +155,8 @@ class FinancialInformation(Base):
     default_history_flag: Mapped[bool] = mapped_column(Boolean, default=False)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), onupdate=func.now())
+    updated_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     customer_profile: Mapped["CustomerProfile"] = relationship("CustomerProfile", back_populates="financial_information")
 
@@ -164,10 +170,15 @@ class KYCDocumentSubmission(Base):
     document_type: Mapped[str] = mapped_column(String, nullable=False)
     document_reference_masked: Mapped[Optional[str]] = mapped_column(String)
     document_reference_token: Mapped[Optional[str]] = mapped_column(String)
-    s3_file_locator: Mapped[Optional[str]] = mapped_column(String)
+    # SECURITY: Files are stored outside the database. storage_path contains the reference.
+    storage_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    file_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    file_mime_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Kept for forward-compatibility with cloud storage migration
+    s3_file_locator: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     verification_status: Mapped[KYCVerificationStatus] = mapped_column(SQLEnum(KYCVerificationStatus, native_enum=False), default=KYCVerificationStatus.PENDING)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    
+
     customer_profile: Mapped["CustomerProfile"] = relationship("CustomerProfile", back_populates="kyc_document_submissions")
     otp_verifications: Mapped[List["KYCOTPVerification"]] = relationship("KYCOTPVerification", back_populates="document_submission", cascade="all, delete-orphan")
 
@@ -233,5 +244,7 @@ class FATCADeclaration(Base):
     us_tin: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     declaration_signed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), onupdate=func.now())
+    updated_by: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     customer_profile: Mapped["CustomerProfile"] = relationship("CustomerProfile")

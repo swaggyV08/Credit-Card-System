@@ -1,6 +1,6 @@
 import uuid
 from typing import Union, List
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, status, Query
 from sqlalchemy.orm import Session
 from pydantic import ValidationError
 
@@ -13,10 +13,20 @@ from app.schemas.card_management import (
     CCMCardReplaceRequest, CCMCardTerminateRequest, CCMCardRenewRequest
 )
 from app.services.card_management_service import CardManagementService
-from app.models.enums import CCMCommand
+from app.models.enums import CCMCommand, ActorType
+from app.core.app_error import AppError
+from app.models.card_management import CCMCreditCard
+from app.core.roles import Role
 
 router = APIRouter(prefix="/cards", tags=["Cards"])
 issue_router = APIRouter(prefix="/card_product", tags=["Card Issuance"])
+
+def _assert_card_ownership(db: Session, card_id: uuid.UUID, principal: AuthenticatedPrincipal):
+    if principal.role in [Role.ADMIN, Role.SUPERADMIN]:
+        return
+    card = db.query(CCMCreditCard).filter(CCMCreditCard.id == card_id).first()
+    if not card or str(card.user_id) != principal.user_id:
+         raise AppError(code="ACCESS_DENIED", message="Access Denied: You do not own this card.", http_status=403)
 
 @issue_router.post("/{credit_account_id}/card", status_code=status.HTTP_201_CREATED)
 def issue_card_endpoint(
@@ -29,10 +39,10 @@ def issue_card_endpoint(
     try:
         result = CardManagementService.issue_card(db, credit_account_id, request)
         return envelope_success(result.model_dump(mode='json') if hasattr(result, 'model_dump') else result)
-    except HTTPException:
+    except AppError:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to issue card: {str(e)}")
+        raise AppError(code="INTERNAL_ERROR", message=f"Failed to issue card: {str(e)}", http_status=500)
 
 @router.post("/{card_id}/activate")
 async def activate_card_dispatcher(
@@ -44,23 +54,24 @@ async def activate_card_dispatcher(
 ):
     """Handles card activation in two stages ('generate' and 'activate')"""
     try:
+        _assert_card_ownership(db, card_id, principal)
         if command == CCMCommand.GENERATE.value:
             result = CardManagementService.handle_activation_generate(db, card_id)
         elif command == CCMCommand.ACTIVATE.value:
             schema = body
             if not schema.pin:
-                raise HTTPException(status_code=400, detail="PIN is required for activation.")
+                raise AppError(code="MISSING_FIELD", message="PIN is required for activation.", http_status=400)
             if not schema.activation_id:
-                raise HTTPException(status_code=400, detail="activation_id is required.")
+                raise AppError(code="MISSING_FIELD", message="activation_id is required.", http_status=400)
             result = CardManagementService.handle_activation_final(db, card_id, schema)
         else:
-            raise HTTPException(status_code=400, detail=f"Invalid activation command: '{command}'")
+            raise AppError(code="INVALID_COMMAND", message=f"Invalid activation command: '{command}'", http_status=400)
         
         return envelope_success(result.model_dump(mode='json') if hasattr(result, 'model_dump') else result)
-    except HTTPException:
+    except AppError:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Activation failed: {str(e)}")
+        raise AppError(code="INTERNAL_ERROR", message=f"Activation failed: {str(e)}", http_status=500)
 
 @router.post("/{card_id}")
 async def card_lifecycle_dispatcher(
@@ -78,15 +89,18 @@ async def card_lifecycle_dispatcher(
     raw_data = data.model_dump() if hasattr(data, "model_dump") else data
     
     try:
+        _assert_card_ownership(db, card_id, principal)
+        actor = ActorType.ADMIN if principal.role in [Role.ADMIN, Role.SUPERADMIN] else ActorType.USER
+        
         if command == CCMCommand.BLOCK.value.lower():
             validated_data = CCMCardBlockRequest.model_validate(raw_data)
-            result = CardManagementService.block_card(db, card_id, validated_data)
+            result = CardManagementService.block_card(db, card_id, validated_data, actor=actor)
         elif command == CCMCommand.UNBLOCK_OTP.value.lower():
             validated_data = CCMCardUnblockRequest.model_validate(raw_data)
-            result = CardManagementService.initiate_unblock(db, card_id, validated_data)
+            result = CardManagementService.initiate_unblock(db, card_id, validated_data, actor=actor)
         elif command == CCMCommand.UNBLOCK.value.lower():
             validated_data = CCMCardUnblockRequest.model_validate(raw_data)
-            result = CardManagementService.confirm_unblock(db, card_id, validated_data)
+            result = CardManagementService.confirm_unblock(db, card_id, validated_data, actor=actor)
         elif command == CCMCommand.REPLACE.value.lower():
             validated_data = CCMCardReplaceRequest.model_validate(raw_data)
             result = CardManagementService.replace_card(db, card_id, validated_data)
@@ -96,17 +110,21 @@ async def card_lifecycle_dispatcher(
         elif command == CCMCommand.RENEW.value.lower():
             validated_data = CCMCardRenewRequest.model_validate(raw_data)
             result = CardManagementService.renew_card(db, card_id, validated_data)
+        elif command == CCMCommand.FREEZE.value.lower():
+            result = CardManagementService.freeze_card(db, card_id)
+        elif command == CCMCommand.UNFREEZE.value.lower():
+            result = CardManagementService.unfreeze_card(db, card_id)
         else:
             valid_commands = ", ".join([c.value for c in CCMCommand])
-            raise HTTPException(status_code=400, detail=f"Invalid command: '{command}'. Valid commands: {valid_commands}")
+            raise AppError(code="INVALID_COMMAND", message=f"Invalid command: '{command}'. Valid commands: {valid_commands}", http_status=400)
             
         return envelope_success(result.model_dump(mode='json') if hasattr(result, 'model_dump') else result)
-    except HTTPException:
+    except AppError:
         raise
     except (ValueError, ValidationError) as e:
-        raise HTTPException(status_code=422, detail=f"Validation error: {str(e)}")
+        raise AppError(code="INVALID_PAYLOAD", message=f"Validation error: {str(e)}", http_status=422)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Command '{command}' failed: {str(e)}")
+        raise AppError(code="INTERNAL_ERROR", message=f"Command '{command}' failed: {str(e)}", http_status=500)
 
 @router.get("/{card_id}")
 def get_card_details(
@@ -115,13 +133,14 @@ def get_card_details(
     principal: AuthenticatedPrincipal = Depends(require("card:read"))
 ):
     """Retrieves full card details including status, PAN, expiry, linked credit account, and feature flags."""
+    _assert_card_ownership(db, card_id, principal)
     from app.models.card_management import CCMCreditCard
     from sqlalchemy.orm import joinedload
     card = db.query(CCMCreditCard).options(
         joinedload(CCMCreditCard.credit_account)
     ).filter(CCMCreditCard.id == card_id).first()
     if not card:
-        raise HTTPException(status_code=404, detail="Card not found. Please check the card_id.")
+        raise AppError(code="NOT_FOUND", message="Card not found. Please check the card_id.", http_status=404)
     
     # Needs to handle sqlalchemy object directly since envelope_success expects dict or Pydantic model dump
     from app.schemas.card_management import CCMCreditCardResponse

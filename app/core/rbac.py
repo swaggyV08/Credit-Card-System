@@ -125,6 +125,10 @@ ROLE_PERMISSIONS: dict[str, set[Role]] = {
 
     # ── Fraud ────────────────────────────────────────────────────
     "fraud:read":                 {Role.ADMIN, Role.MANAGER, Role.SUPERADMIN},
+    # ── Bureau ───────────────────────────────────────────────────
+    "bureau:read_own":            {Role.USER},
+    "bureau:read_any":            {Role.SALES, Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
+    "bureau:trigger":             {Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
 }
 
 

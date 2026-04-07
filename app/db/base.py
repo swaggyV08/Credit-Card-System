@@ -59,3 +59,6 @@ from app.models.billing import (
     FraudFlag as TransactionFraudFlag,   # transaction-level fraud flags
     IdempotencyKey,
 )
+
+# Bureau Scoring Layer
+from app.models.bureau import BureauScore

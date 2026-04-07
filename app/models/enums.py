@@ -443,4 +443,20 @@ class CCMAdjustmentReasonCode(str, Enum):
     GOODWILL_CREDIT = "GOODWILL_CREDIT"
     FEE_WAIVER = "FEE_WAIVER"
     INTEREST_REVERSAL = "INTEREST_REVERSAL"
-    MANUAL_CORRECTION = "MANUAL_CORRECTION"
+    MANUAL_CORRECTION = "MANUAL_CORRECTION"
+
+# =====================================================
+# BUREAU SCORING SYSTEM
+# =====================================================
+class BureauRiskBand(str, Enum):
+    POOR = "POOR"
+    FAIR = "FAIR"
+    GOOD = "GOOD"
+    VERY_GOOD = "VERY_GOOD"
+    EXCELLENT = "EXCELLENT"
+
+class ScoreTrigger(str, Enum):
+    TRANSACTION_SETTLED = "TRANSACTION_SETTLED"
+    PAYMENT_MADE = "PAYMENT_MADE"
+    MANUAL_REQUEST = "MANUAL_REQUEST"
+    SCHEDULED = "SCHEDULED"

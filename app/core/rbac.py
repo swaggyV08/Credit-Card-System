@@ -69,12 +69,14 @@ ROLE_PERMISSIONS: dict[str, set[Role]] = {
     # ── Credit Products ─────────────────────────────────────────
     "credit_product:create":      {Role.ADMIN, Role.SUPERADMIN},
     "credit_product:read":        {Role.ADMIN, Role.MANAGER, Role.SALES, Role.SUPERADMIN},
+    "credit_product:user_read":   {Role.USER},
     "credit_product:status":      {Role.MANAGER},
     "credit_product:delete":      {Role.MANAGER},
 
     # ── Card Products ───────────────────────────────────────────
     "card_product:create":        {Role.ADMIN, Role.SUPERADMIN},
     "card_product:read":          {Role.ADMIN, Role.MANAGER, Role.SALES, Role.SUPERADMIN},
+    "card_product:user_read":     {Role.USER},
     "card_product:approve":       {Role.MANAGER},
     "card_product:delete":        {Role.MANAGER},
 

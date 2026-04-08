@@ -205,3 +205,83 @@ def delete_card_product(
     CardProductService.delete_card_product(db, card_product_id)
     return envelope_success({"message": "Card Product permanently deleted"})
 
+
+# ===================================================================
+# USER-FACING ENDPOINTS — Active products only
+# ===================================================================
+
+@router.get(
+    "/catalog",
+    summary="Browse Active Card Products (User)",
+    description="""
+Returns a paginated list of **ACTIVE** card products available to users.
+
+Only card products that have been approved (status=ACTIVE in governance) are shown.
+Non-active products (DRAFT, SUSPENDED, CLOSED, REJECTED) are explicitly excluded.
+""",
+    dependencies=[Depends(require("card_product:user_read"))],
+)
+def list_active_card_products(
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    db: Session = Depends(get_db),
+    principal: AuthenticatedPrincipal = Depends(require("card_product:user_read")),
+):
+    """List only ACTIVE card products for user browsing."""
+    from app.admin.models.card_product import CardProductGovernance
+
+    query = (
+        db.query(CardProductCore)
+        .join(CardProductGovernance)
+        .filter(CardProductGovernance.status == ProductStatus.ACTIVE)
+    )
+
+    total = query.count()
+    results = query.offset((page - 1) * limit).limit(limit).all()
+
+    items = [CardProductSummaryResponse.model_validate(r) for r in results]
+
+    return envelope_success({
+        "items": items,
+        "pagination": build_pagination(total, page, limit),
+    })
+
+
+@router.get(
+    "/catalog/{card_product_id}",
+    summary="Get Active Card Product Details (User)",
+    description="""
+Returns details for a single **ACTIVE** card product.
+
+If the product is not ACTIVE, a 404 error is returned.
+""",
+    dependencies=[Depends(require("card_product:user_read"))],
+)
+def get_active_card_product(
+    card_product_id: UUID,
+    db: Session = Depends(get_db),
+    principal: AuthenticatedPrincipal = Depends(require("card_product:user_read")),
+):
+    """Get details of a single active card product."""
+    from app.admin.models.card_product import CardProductGovernance
+
+    card = (
+        db.query(CardProductCore)
+        .join(CardProductGovernance)
+        .filter(
+            CardProductCore.id == card_product_id,
+            CardProductGovernance.status == ProductStatus.ACTIVE,
+        )
+        .first()
+    )
+
+    if not card:
+        raise AppError(
+            code="NOT_FOUND",
+            message="Card product not found or not currently available",
+            http_status=404,
+        )
+
+    payload = CardProductSummaryResponse.model_validate(card)
+    return envelope_success(payload.model_dump(mode="json"))
+

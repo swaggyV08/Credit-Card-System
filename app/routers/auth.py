@@ -42,7 +42,7 @@ from app.schemas.responses import (
 )
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
-admin_router = APIRouter(prefix="", tags=["Admin: Creation"])
+admin_router = APIRouter(prefix="/auth", tags=["Admin: Creation"])
 
 
 # ===================================================================
@@ -615,7 +615,7 @@ async def generic_otp_dispatcher(
 # ADD ADMIN (CREATE)
 # ===================================================================
 @admin_router.post(
-    "/admins",
+    "/admin",
     status_code=status.HTTP_201_CREATED,
     response_model=AddAdminResponse,
     summary="Create admin account",
@@ -626,11 +626,11 @@ def add_admin(
     principal: AuthenticatedPrincipal = Depends(require("admin:create")),
     db: Session = Depends(get_db),
 ):
-    """Create a new admin account with auto-generated employee ID."""
+    """Create a new admin account."""
     if data.password != data.confirm_password:
         raise HTTPException(
             status_code=400,
-            detail={"code": "PASSWORD_MISMATCH", "message": "Passwords do not match"}
+            detail={"code": "PASSWORD_MISMATCH", "message": "Password and confirm password do not match"}
         )
 
     try:
@@ -658,6 +658,16 @@ def add_admin(
             }
         )
 
+    existing_emp = db.query(Admin).filter(Admin.employee_id == data.employee_id).first()
+    if existing_emp:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "ALREADY_REGISTERED",
+                "message": "Employee ID already exists"
+            }
+        )
+
     if data.role == Role.USER:
         raise HTTPException(
             status_code=400,
@@ -673,7 +683,7 @@ def add_admin(
         full_name=f"{data.full_name.first_name} {data.full_name.last_name}".strip(),
         email=data.email,
         role=data.role,
-        employee_id=generate_znbad_id(db),
+        employee_id=data.employee_id,
         country_code=data.contact.country_code,
         phone_number=data.contact.phone_number,
         password_hash=hashed_password,

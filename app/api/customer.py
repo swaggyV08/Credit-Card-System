@@ -166,9 +166,19 @@ def save_cif_unified(
             raise AppError(code="INVALID_YEARS_AT_ADDRESS", message="Invalid age provided", http_status=400)
             
         if data.country_of_residence == Country.PAKISTAN or data.nationality == Country.PAKISTAN:
+            if principal.jti:
+                from app.models.token_blacklist import BlacklistedToken
+                db.add(BlacklistedToken(jti=principal.jti))
+            profile.customer_status = "BLOCKED"
+            db.commit()
             raise AppError(code="GEO_RESTRICTION", message="Country is not currently eligible for onboarding due to jurisdictional restrictions.", http_status=403)
 
         if data.country_of_residence.value in BLACKLISTED_COUNTRIES:
+            if principal.jti:
+                from app.models.token_blacklist import BlacklistedToken
+                db.add(BlacklistedToken(jti=principal.jti))
+            profile.customer_status = "BLOCKED"
+            db.commit()
             raise AppError(code="GEO_RESTRICTION", message="Country not eligible", http_status=403)
 
         profile.nationality = data.nationality

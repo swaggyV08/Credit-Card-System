@@ -181,6 +181,20 @@ def require(permission: str):
                 detail={"code": "INVALID_TOKEN", "message": "Token missing subject"},
             )
 
+        jti = payload.get("jti")
+        if jti:
+            from app.models.token_blacklist import BlacklistedToken
+            from app.db.session import get_db
+            db_gen = get_db()
+            db = next(db_gen)
+            blacklisted = db.query(BlacklistedToken).filter(BlacklistedToken.jti == jti).first()
+            db_gen.close()
+            if blacklisted:
+                raise HTTPException(
+                    status_code=403,
+                    detail={"code": "ACCOUNT_BLOCKED", "message": "Session invalidated. Your account is blocked."}
+                )
+
         role = _resolve_role(payload)
         token_type = str(payload.get("token_type") or payload.get("type", "USER")).upper()
         jti = payload.get("jti")

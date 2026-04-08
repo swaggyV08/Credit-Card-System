@@ -1,6 +1,5 @@
 BLACKLISTED_COUNTRIES = [
-    "Pakistan",
-    "North Korea",
-    "Iran",
-    "Syria"
+    "Pakistan", "Myanmar", "Syria", "Yemen", "Afghanistan", "Somalia",
+    "Sudan", "South Sudan", "Libya", "Lebanon", "Iraq", "Zimbabwe",
+    "Venezuela", "Congo", "North Korea", "Iran"
 ]

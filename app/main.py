@@ -26,7 +26,8 @@ from app.admin.api import credit_product
 from app.routers import (
     card_products, admin_users, credit_accounts, cards,
     transactions, disputes, settlement,
-    statements, payments, controls, billing
+    statements, payments, controls, billing,
+    credit_products as user_credit_products
 )
 from app.core.exceptions import BankGradeException
 from app.core.app_error import AppError
@@ -166,14 +167,17 @@ app.include_router(customer.router)
 app.include_router(application.router)
 app.include_router(credit_product.router)
 
-# newly refactored routers
+# user-facing product catalog routers
+app.include_router(user_credit_products.router)
 app.include_router(card_products.router)
+
+# admin management routers
 app.include_router(admin_users.router)
 app.include_router(credit_accounts.router)
 app.include_router(cards.router)
 app.include_router(cards.issue_router)
 
-# refactored transaction processing routers
+# transaction processing routers
 app.include_router(transactions.router)
 app.include_router(disputes.router)
 app.include_router(settlement.router)

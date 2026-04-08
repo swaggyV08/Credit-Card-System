@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 client = TestClient(app)
 
 def override_get_current_admin_user():
-    user = User(id=uuid4(), email="risk_admin@zbanque.com", is_active=True, country_code="+91", phone_number="9876543210")
+    user = User(id=uuid4().hex[:20], email="risk_admin@zbanque.com", status="ACTIVE", country_code="+91", phone_number="9876543210")
     user.role = UserRole.ADMIN
     return user
 

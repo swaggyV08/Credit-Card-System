@@ -39,7 +39,7 @@ def client(db_session):
 
 def test_kyc_regression_full_flow(client, db_session):
     # --- STEP 1: Register User ---
-    test_email = f"test_kyc_{uuid.uuid4().hex[:6]}@zbanque.com"
+    test_email = f"test_kyc_{uuid.uuid4().hex[:20].hex[:6]}@zbanque.com"
     test_phone = "9876543210"
     dob = date(1990, 1, 1)
     

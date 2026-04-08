@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 client = TestClient(app)
 
 def override_get_current_admin_user():
-    admin = Admin(id=uuid4(), email="admin2@zbanque.com", password_hash="hashedpass")
+    admin = Admin(id=uuid4().hex[:20], email="admin2@zbanque.com", password_hash="hashedpass")
     return admin
 
 from unittest.mock import MagicMock

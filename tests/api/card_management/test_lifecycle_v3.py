@@ -42,11 +42,11 @@ def client(db_session):
 @pytest.fixture(scope="function")
 def test_user(db_session):
     user = User(
-        id=uuid.uuid4(),
-        email=f"test_{uuid.uuid4().hex[:6]}@example.com",
+        id=uuid.uuid4().hex[:20],
+        email=f"test_{uuid.uuid4().hex[:20].hex[:6]}@example.com",
         country_code="+91",
         phone_number="1234567890",
-        is_active=True
+        status="ACTIVE"
     )
     db_session.add(user)
     db_session.commit()
@@ -55,7 +55,7 @@ def test_user(db_session):
 @pytest.fixture(scope="function")
 def test_account(db_session, test_user):
     account = CCMCreditAccount(
-        id=uuid.uuid4(),
+        id=uuid.uuid4().hex[:20],
         user_id=test_user.id,
         credit_limit=50000.0,
         available_credit=50000.0,
@@ -70,7 +70,7 @@ def test_full_card_lifecycle(client, db_session, test_user, test_account):
     # 1. Issue Card
     resp = client.post(f"/cards/{test_account.id}/issue", json={
         "credit_account_id": str(test_account.id),
-        "card_product_id": str(uuid.uuid4()),
+        "card_product_id": str(uuid.uuid4().hex[:20]),
         "card_type": "PHYSICAL",
         "embossed_name": "JOHN SMITH",
         "delivery_address": "Hyderabad"

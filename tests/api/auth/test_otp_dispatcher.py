@@ -38,7 +38,7 @@ def client(db_session):
 
 def test_otp_dispatcher_flow(client, db_session):
     from app.models.auth import User
-    user = User(id=str(uuid.uuid4())[:20], email="otpuser@test.com", status="UNVERIFIED")
+    user = User(id=str(uuid.uuid4().hex[:20])[:20], email="otpuser@test.com", status="UNVERIFIED")
     db_session.add(user)
     db_session.commit()
     user_id = user.id
@@ -74,7 +74,7 @@ def test_otp_dispatcher_flow(client, db_session):
 
 def test_otp_dispatcher_generate_with_otp_ignored(client, db_session):
     from app.models.auth import User
-    user = User(id=str(uuid.uuid4())[:20], email="otpuser2@test.com", status="UNVERIFIED")
+    user = User(id=str(uuid.uuid4().hex[:20])[:20], email="otpuser2@test.com", status="UNVERIFIED")
     db_session.add(user)
     db_session.commit()
     user_id = user.id

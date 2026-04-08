@@ -124,7 +124,7 @@ def test_otp_verify_expired_otp():
     assert "expired" in response.json()["errors"][0]["message"].lower()
 
 def test_login_unverified_user():
-    mock_user = User(id=uuid4(), email="test@example.com", status="UNVERIFIED")
+    mock_user = User(id=uuid4().hex[:20], email="test@example.com", status="UNVERIFIED")
     
     mock_db.execute.side_effect = [
         MagicMock(scalar_one_or_none=lambda: mock_user)
@@ -136,7 +136,7 @@ def test_login_unverified_user():
     assert response.json()["errors"][0]["code"] == "UNAUTHORIZED"
 
 def test_login_valid_credentials():
-    mock_user = User(id=uuid4(), email="test@example.com", status="ACTIVE", is_cif_completed=True, is_kyc_completed=True)
+    mock_user = User(id=uuid4().hex[:20], email="test@example.com", status="ACTIVE", is_cif_completed=True, is_kyc_completed=True)
     mock_profile = CustomerProfile(first_name="Test", last_name="User")
     mock_user.customer_profile = mock_profile
     

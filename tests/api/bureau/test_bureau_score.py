@@ -44,7 +44,7 @@ def _get_token(user_id: str, role: Role):
     return create_access_token({"sub": user_id, "role": role.value, "token_type": token_type})
 
 def test_get_score_user_success():
-    user_id = str(uuid.uuid4())
+    user_id = str(uuid.uuid4().hex[:20])
     token = _get_token(user_id, Role.USER)
     
     mock_user = User(id=user_id, email="test@zbanque.com", is_cif_completed=True)
@@ -73,8 +73,8 @@ def test_get_score_user_success():
     assert "score_interpretation" in data["data"]
 
 def test_get_score_admin_success():
-    admin_id = str(uuid.uuid4())
-    target_user_id = str(uuid.uuid4())
+    admin_id = str(uuid.uuid4().hex[:20])
+    target_user_id = str(uuid.uuid4().hex[:20])
     token = _get_token(admin_id, Role.ADMIN)
     
     mock_user = User(id=target_user_id, email="target@zbanque.com", is_cif_completed=True)
@@ -98,7 +98,7 @@ def test_get_score_admin_success():
     assert response.json()["data"]["score"] == 600
 
 def test_get_score_missing_user_id_400():
-    admin_id = str(uuid.uuid4())
+    admin_id = str(uuid.uuid4().hex[:20])
     token = _get_token(admin_id, Role.ADMIN)
     
     response = client.get("/bureau/score", headers={"Authorization": f"Bearer {token}"}) # No user_id query param
@@ -107,7 +107,7 @@ def test_get_score_missing_user_id_400():
     assert response.json()["errors"][0]["code"] == "MISSING_USER_ID"
 
 def test_get_score_user_not_found_404():
-    user_id = str(uuid.uuid4())
+    user_id = str(uuid.uuid4().hex[:20])
     token = _get_token(user_id, Role.USER)
     
     mock_async_db.execute.return_value = MagicMock(scalar=lambda: None) # User not found
@@ -118,7 +118,7 @@ def test_get_score_user_not_found_404():
     assert response.json()["errors"][0]["code"] == "USER_NOT_FOUND"
 
 def test_get_score_cif_incomplete_400():
-    user_id = str(uuid.uuid4())
+    user_id = str(uuid.uuid4().hex[:20])
     token = _get_token(user_id, Role.USER)
     
     mock_user = User(id=user_id, is_cif_completed=False)
@@ -130,7 +130,7 @@ def test_get_score_cif_incomplete_400():
     assert response.json()["errors"][0]["code"] == "CIF_INCOMPLETE"
 
 def test_get_score_not_yet_computed_404():
-    user_id = str(uuid.uuid4())
+    user_id = str(uuid.uuid4().hex[:20])
     token = _get_token(user_id, Role.USER)
     
     mock_user = User(id=user_id, is_cif_completed=True)
@@ -147,8 +147,8 @@ def test_get_score_not_yet_computed_404():
 @patch("app.routers.bureau.compute_bureau_score")
 @patch("app.core.redis.redis_service.get_client")
 def test_trigger_score_success(mock_redis, mock_compute):
-    user_id = str(uuid.uuid4())
-    admin_id = str(uuid.uuid4())
+    user_id = str(uuid.uuid4().hex[:20])
+    admin_id = str(uuid.uuid4().hex[:20])
     token = _get_token(admin_id, Role.ADMIN)
     
     mock_user = User(id=user_id, is_cif_completed=True)
@@ -172,8 +172,8 @@ def test_trigger_score_success(mock_redis, mock_compute):
 
 @patch("app.core.redis.redis_service.get_client")
 def test_trigger_score_rate_limit_429(mock_redis):
-    user_id = str(uuid.uuid4())
-    admin_id = str(uuid.uuid4())
+    user_id = str(uuid.uuid4().hex[:20])
+    admin_id = str(uuid.uuid4().hex[:20])
     token = _get_token(admin_id, Role.ADMIN)
     
     mock_user = User(id=user_id, is_cif_completed=True)
@@ -191,8 +191,8 @@ def test_trigger_score_rate_limit_429(mock_redis):
     assert response.headers["Retry-After"] == "1800"
 
 def test_trigger_score_no_body_accepted_422():
-    user_id = str(uuid.uuid4())
-    admin_id = str(uuid.uuid4())
+    user_id = str(uuid.uuid4().hex[:20])
+    admin_id = str(uuid.uuid4().hex[:20])
     token = _get_token(admin_id, Role.ADMIN)
     
     response = client.post(f"/bureau/score/trigger?user_id={user_id}", json={"something": "not allowed"}, headers={"Authorization": f"Bearer {token}"})
@@ -201,7 +201,7 @@ def test_trigger_score_no_body_accepted_422():
     assert response.json()["errors"][0]["code"] == "NO_BODY_ACCEPTED"
 
 def test_get_history_invalid_date_range_400():
-    user_id = str(uuid.uuid4())
+    user_id = str(uuid.uuid4().hex[:20])
     token = _get_token(user_id, Role.USER)
     
     response = client.get(f"/bureau/score/history?from_date=2024-01-02&to_date=2024-01-01", headers={"Authorization": f"Bearer {token}"})

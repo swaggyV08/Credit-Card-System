@@ -51,8 +51,8 @@ def test_underwriting_full_lifecycle(client, db_session):
     admin = db_session.query(Admin).filter(Admin.role == Role.SUPERADMIN).first()
     if not admin:
         admin = Admin(
-            id=uuid.uuid4(),
-            email=f"admin_{uuid.uuid4().hex[:6]}@zbanque.com",
+            id=uuid.uuid4().hex[:20],
+            email=f"admin_{uuid.uuid4().hex[:20].hex[:6]}@zbanque.com",
             password_hash="fake",
             full_name="Regression Admin",
             role=Role.SUPERADMIN,
@@ -70,7 +70,7 @@ def test_underwriting_full_lifecycle(client, db_session):
     
     if not product:
         product = CreditProductInformation(
-            id=uuid.uuid4(),
+            id=uuid.uuid4().hex[:20],
             product_code=product_code,
             product_name="Test Visa Platinum",
             product_version=1,
@@ -97,7 +97,7 @@ def test_underwriting_full_lifecycle(client, db_session):
         db_session.add(gov)
         
         card_product = CardProductCore(
-            id=uuid.uuid4(),
+            id=uuid.uuid4().hex[:20],
             credit_product_id=product.id,
             card_network="VISA",
             card_bin_range="4532",
@@ -110,7 +110,7 @@ def test_underwriting_full_lifecycle(client, db_session):
         card_product = db_session.query(CardProductCore).filter(CardProductCore.credit_product_id == product.id).first()
 
     # --- STEP 1: Register User ---
-    test_email = f"underwrite_{uuid.uuid4().hex[:6]}@zbanque.com"
+    test_email = f"underwrite_{uuid.uuid4().hex[:20].hex[:6]}@zbanque.com"
     test_phone = "9988776655"
     
     reg_payload = {

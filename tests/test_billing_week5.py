@@ -61,10 +61,10 @@ def credit_account(db: Session):
     from app.models.enums import AccountStatus
 
     acc = CreditAccount(
-        id=uuid.uuid4(),
+        id=uuid.uuid4().hex[:20],
         user_id="TEST001",
-        credit_product_id=uuid.uuid4(),
-        card_product_id=uuid.uuid4(),
+        credit_product_id=uuid.uuid4().hex[:20],
+        card_product_id=uuid.uuid4().hex[:20],
         credit_limit=Decimal("100000.00"),
         available_limit=Decimal("100000.00"),
         cash_advance_limit=Decimal("20000.00"),
@@ -84,7 +84,7 @@ def card(db: Session, credit_account):
     from app.models.enums import CardStatus
 
     c = Card(
-        id=uuid.uuid4(),
+        id=uuid.uuid4().hex[:20],
         credit_account_id=credit_account.id,
         card_product_id=credit_account.card_product_id,
         pan_encrypted="ENC_4111111111111111",
@@ -111,7 +111,7 @@ def settled_transactions(db: Session, card, credit_account):
 
     # Purchase transaction
     t1 = Transaction(
-        id=uuid.uuid4(),
+        id=uuid.uuid4().hex[:20],
         card_id=card.id,
         account_id=credit_account.id,
         amount=Decimal("5000.00"),
@@ -126,7 +126,7 @@ def settled_transactions(db: Session, card, credit_account):
 
     # Cash advance
     t2 = Transaction(
-        id=uuid.uuid4(),
+        id=uuid.uuid4().hex[:20],
         card_id=card.id,
         account_id=credit_account.id,
         amount=Decimal("2000.00"),
@@ -141,7 +141,7 @@ def settled_transactions(db: Session, card, credit_account):
 
     # Another purchase
     t3 = Transaction(
-        id=uuid.uuid4(),
+        id=uuid.uuid4().hex[:20],
         card_id=card.id,
         account_id=credit_account.id,
         amount=Decimal("1500.00"),
@@ -471,7 +471,7 @@ class TestFraudService:
         now = datetime.now(timezone.utc)
         for i in range(5):
             t = Transaction(
-                id=uuid.uuid4(),
+                id=uuid.uuid4().hex[:20],
                 card_id=card.id,
                 account_id=credit_account.id,
                 amount=Decimal("100.00"),
@@ -501,7 +501,7 @@ class TestFraudService:
         # Create historical transactions with average of ₹500
         for i in range(5):
             t = Transaction(
-                id=uuid.uuid4(),
+                id=uuid.uuid4().hex[:20],
                 card_id=card.id,
                 account_id=credit_account.id,
                 amount=Decimal("500.00"),
@@ -538,7 +538,7 @@ class TestIdempotencyService:
         from app.services.idempotency_service import IdempotencyService
 
         key = "IDEM-TEST-001"
-        response = {"transaction_id": str(uuid.uuid4()), "status": "AUTHORIZED"}
+        response = {"transaction_id": str(uuid.uuid4().hex[:20]), "status": "AUTHORIZED"}
 
         IdempotencyService.store_idempotency_result(
             db=db, key=key, card_id=card.id,
@@ -557,7 +557,7 @@ class TestIdempotencyService:
         from app.core.exceptions import IdempotencyConflictError
 
         key = "IDEM-CONFLICT-001"
-        response = {"transaction_id": str(uuid.uuid4())}
+        response = {"transaction_id": str(uuid.uuid4().hex[:20])}
 
         IdempotencyService.store_idempotency_result(
             db=db, key=key, card_id=card.id,
@@ -567,7 +567,7 @@ class TestIdempotencyService:
 
         # Try with a different card_id
         with pytest.raises(IdempotencyConflictError):
-            IdempotencyService.check_idempotency(db, key, str(uuid.uuid4()))
+            IdempotencyService.check_idempotency(db, key, str(uuid.uuid4().hex[:20]))
 
     def test_expired_idempotency_key_treated_as_new(self, db, card):
         """H6: Expired key is cleaned up and treated as new."""

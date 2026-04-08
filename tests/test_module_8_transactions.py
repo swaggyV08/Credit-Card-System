@@ -25,12 +25,12 @@ def test_transaction_idempotency_headers(user_token):
     # For unit tests, we usually use a mock DB, but here we use the actual DB as per existing tests
     # Let's find an active card or create one if possible (though creating might be complex due to FKs)
     
-    card_id = str(uuid.uuid4())
+    card_id = str(uuid.uuid4().hex[:20])
     payload = {
         "amount": 100.50,
         "currency": "INR",
         "transaction_type": "PURCHASE",
-        "merchant_id": str(uuid.uuid4()),
+        "merchant_id": str(uuid.uuid4().hex[:20]),
         "merchant_name": "Test Merchant",
         "merchant_category_code": "5411",
         "merchant_country": "IN"
@@ -58,7 +58,7 @@ def test_transaction_idempotency_headers(user_token):
     assert response.json()["errors"][0]["code"] == "INVALID_IDEMPOTENCY_KEY"
 
 def test_transaction_velocity_gate(user_token):
-    card_id = str(uuid.uuid4())
+    card_id = str(uuid.uuid4().hex[:20])
     # This test might fail if Redis is not running, but it should test the logic
     # We will skip if Redis fails or check the error code
     pass

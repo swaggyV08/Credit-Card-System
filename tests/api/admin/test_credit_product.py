@@ -14,7 +14,7 @@ client = TestClient(app)
 
 # Mocking the dependency to return a test admin user
 def override_get_current_admin_user():
-    admin = Admin(id=uuid4(), email="admin@zbanque.com", passcode_hash="hashedpass")
+    admin = Admin(id=uuid4().hex[:20], email="admin@zbanque.com", passcode_hash="hashedpass")
     return admin
 
 from unittest.mock import MagicMock

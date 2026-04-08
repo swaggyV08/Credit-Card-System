@@ -24,7 +24,7 @@ def mock_db():
 
 @pytest.fixture
 def mock_admin():
-    admin = User(id=uuid4(), email="admin@zbanque.com", is_active=True)
+    admin = User(id=uuid4().hex[:20], email="admin@zbanque.com", status="ACTIVE")
     admin.role = UserRole.ADMIN
     return admin
 

@@ -51,13 +51,13 @@ from app.models.auth import User
 
 @pytest.fixture(scope="function")
 def test_user(db_session):
-    user_id = uuid.uuid4()
+    user_id = uuid.uuid4().hex[:20]
     user = User(
         id=user_id,
-        email=f"ccm_test_{uuid.uuid4().hex[:8]}@example.com",
+        email=f"ccm_test_{uuid.uuid4().hex[:20].hex[:8]}@example.com",
         country_code="+91",
         phone_number="1234567890",
-        is_active=True
+        status="ACTIVE"
     )
     db_session.add(user)
     db_session.flush() 

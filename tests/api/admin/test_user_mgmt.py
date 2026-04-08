@@ -19,7 +19,7 @@ ACC_ID = uuid4()
 CARD_ID = uuid4()
 
 def override_get_current_admin_user():
-    user = User(id=uuid4(), email="admin@zbanque.com", is_active=True)
+    user = User(id=uuid4().hex[:20], email="admin@zbanque.com", status="ACTIVE")
     user.role = UserRole.ADMIN
     return user
 
@@ -36,7 +36,7 @@ def override_get_db():
     db.query.return_value.select_from.return_value.join.return_value.outerjoin.return_value.outerjoin.return_value.filter.return_value.all.return_value = [mock_item]
     
     # Mock for detail view
-    mock_user = User(id=USER_ID, email="user@test.com", phone_number="1234567890", is_active=True, is_cif_completed=True)
+    mock_user = User(id=USER_ID, email="user@test.com", phone_number="1234567890", status="ACTIVE", is_cif_completed=True)
     mock_profile = CustomerProfile(user_id=USER_ID, id=CIF_ID, first_name="John", last_name="Doe", cif_number="CIF123")
     mock_account = CreditAccount(id=ACC_ID, cif_id=CIF_ID, readable_id="ACC001", account_status=AccountStatus.ACTIVE)
     mock_card = Card(id=CARD_ID, credit_account_id=ACC_ID, readable_id="CARD001", card_status=CardStatus.ACTIVE, pan_masked="4111XXXX1234")

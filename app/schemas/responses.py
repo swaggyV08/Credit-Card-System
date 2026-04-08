@@ -206,6 +206,7 @@ class OTPResponse(BaseModel):
 # =====================================================
 class AddAdminData(BaseModel):
     admin_id: str = Field(..., json_schema_extra={"example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"})
+    employee_id: str = Field(..., json_schema_extra={"example": "ZNBAD000001"})
     admin: str = Field(..., json_schema_extra={"example": "Rajesh Kumar added successfully"})
     created_at: str = Field(..., json_schema_extra={"example": "2026-04-08T10:30:00.000000+00:00"})
     created_by: str = Field(..., json_schema_extra={"example": "12345678-1234-1234-1234-1234567890ab"})
@@ -232,8 +233,8 @@ class CIFStageResponse(BaseModel):
 
 class CIFSubmitData(BaseModel):
     message: str = Field(..., json_schema_extra={"example": "CIF Submitted Successfully"})
-    user_id: str = Field(..., json_schema_extra={"example": "ZBNQ00000001"})
-    access_token: str = Field(..., json_schema_extra={"example": "eyJhbGciOiJIUzI1NiJ9..."})
+    user_id: str = Field(..., json_schema_extra={"example": "ZNBNQ000001"})
+    submitted_at: str = Field(..., json_schema_extra={"example": "2026-04-08T10:30:00+00:00"})
 
 class CIFSubmitResponse(BaseModel):
     status: str = Field(..., json_schema_extra={"example": "success"})

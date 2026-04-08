@@ -42,7 +42,7 @@ from app.schemas.responses import (
 )
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
-admin_router = APIRouter(prefix="/auth", tags=["Admin: Creation"])
+admin_router = APIRouter(prefix="/admins", tags=["Admin: Creation"])
 
 
 # ===================================================================
@@ -615,7 +615,7 @@ async def generic_otp_dispatcher(
 # ADD ADMIN (CREATE)
 # ===================================================================
 @admin_router.post(
-    "/admin",
+    "",
     status_code=status.HTTP_201_CREATED,
     response_model=AddAdminResponse,
     summary="Create admin account",
@@ -626,11 +626,12 @@ def add_admin(
     principal: AuthenticatedPrincipal = Depends(require("admin:create")),
     db: Session = Depends(get_db),
 ):
-    """Create a new admin account."""
+    """Create a new admin account with auto-generated ZNBAD employee ID."""
+    # Byte-for-byte password comparison
     if data.password != data.confirm_password:
         raise HTTPException(
             status_code=400,
-            detail={"code": "PASSWORD_MISMATCH", "message": "Password and confirm password do not match"}
+            detail={"code": "PASSWORD_MISMATCH", "message": "Password and confirm password do not match. Ensure both fields are identical (byte-for-byte)."}
         )
 
     try:
@@ -658,16 +659,6 @@ def add_admin(
             }
         )
 
-    existing_emp = db.query(Admin).filter(Admin.employee_id == data.employee_id).first()
-    if existing_emp:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "ALREADY_REGISTERED",
-                "message": "Employee ID already exists"
-            }
-        )
-
     if data.role == Role.USER:
         raise HTTPException(
             status_code=400,
@@ -677,13 +668,15 @@ def add_admin(
             }
         )
 
+    # Auto-generate sequential ZNBAD employee ID
+    employee_id = generate_znbad_id(db)
     hashed_password = hash_value(data.password)
 
     new_admin = Admin(
         full_name=f"{data.full_name.first_name} {data.full_name.last_name}".strip(),
         email=data.email,
         role=data.role,
-        employee_id=data.employee_id,
+        employee_id=employee_id,
         country_code=data.contact.country_code,
         phone_number=data.contact.phone_number,
         password_hash=hashed_password,
@@ -696,6 +689,7 @@ def add_admin(
     dt = new_admin.created_at or datetime.now(timezone.utc)
     return envelope_success({
         "admin_id": str(new_admin.id),
+        "employee_id": new_admin.employee_id,
         "admin": f"{new_admin.full_name} added successfully",
         "created_at": dt.isoformat(),
         "created_by": principal.user_id,

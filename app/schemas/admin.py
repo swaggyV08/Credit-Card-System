@@ -39,7 +39,6 @@ class AdminCreate(BaseModel):
     full_name: AdminFullName
     contact: AdminContact
     role: Role = Role.MANAGER
-    employee_id: str = Field(..., description="Must be unique and match ZNBAD000000 format")
 
     @field_validator("email", mode="before")
     @classmethod
@@ -60,14 +59,6 @@ class AdminCreate(BaseModel):
             raise ValueError("Cannot create SUPERADMIN role")
         if v == Role.USER:
             raise ValueError("Cannot assign USER role to an Admin")
-        return v
-
-    @field_validator("employee_id")
-    @classmethod
-    def validate_employee_id(cls, v):
-        import re
-        if not re.match(r"^ZNBAD\d{6}$", v):
-            raise ValueError("Employee ID must be in format ZNBAD followed by 6 digits (e.g. ZNBAD000001)")
         return v
 
 

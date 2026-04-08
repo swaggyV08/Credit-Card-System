@@ -315,7 +315,11 @@ async def process_application(
         if request is None:
             raise AppError(code="MISSING_BODY", message="Configuration body required", http_status=422)
             
-        body = await request.json()
+        try:
+            body = await request.json()
+        except Exception:
+            raise AppError(code="INVALID_JSON", message="Invalid or empty JSON body provided for configuration", http_status=400)
+            
         config = CreditAccountManualConfig(**body)
         
         account = CardIssuanceService.configure_and_create_account(db, application_id, config, UUID(principal.user_id))

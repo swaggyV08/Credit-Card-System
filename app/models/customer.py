@@ -213,11 +213,10 @@ class RiskComplianceLog(Base):
     customer_profile: Mapped["CustomerProfile"] = relationship("CustomerProfile", back_populates="risk_compliance_logs")
 
 class OTPPurpose(str, Enum):
-    LOGIN = "LOGIN"
+    """Valid OTP purposes for the ZBANQUe system."""
     REGISTRATION = "REGISTRATION"
     PASSWORD_RESET = "PASSWORD_RESET"
     ACTIVATION = "ACTIVATION"
-    UNBLOCK = "UNBLOCK"
 
 
 class OTPCode(Base):

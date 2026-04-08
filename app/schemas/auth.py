@@ -117,9 +117,24 @@ class PasswordResetContact(BaseModel):
     phone_number: str
 
 class OTPDispatcherRequest(BaseModel):
-    purpose: OTPPurpose = Field(..., description="The context for which the OTP is needed (e.g., LOGIN, ACTIVATION)")
-    otp: Optional[str] = Field(None, min_length=4, max_length=6, description="The OTP code received by the user. Mandatory for 'verify' command.")
+    """Request body for OTP generate/verify operations."""
+    purpose: OTPPurpose = Field(
+        ...,
+        description="The context for which the OTP is needed. Accepts any case (e.g., 'registration', 'REGISTRATION')."
+    )
+    otp: Optional[str] = Field(
+        None, min_length=4, max_length=6,
+        description="The OTP code received by the user. Mandatory for 'verify' command."
+    )
     password_reset: Optional[PasswordResetContact] = None
+
+    @field_validator("purpose", mode="before")
+    @classmethod
+    def normalize_purpose_case(cls, v):
+        """Accept any case for purpose and normalise to uppercase."""
+        if isinstance(v, str):
+            return v.strip().upper()
+        return v
 
 
 # RESET PASSWORD (AFTER LOGIN)

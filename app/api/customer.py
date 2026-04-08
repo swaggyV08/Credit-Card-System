@@ -30,7 +30,7 @@ from app.schemas.auth import (
 from app.admin.schemas.card_issuance import (
     CreditAccountResponse, CardResponse, CustomerCardResponse, CardActivationRequest, SetPinRequest
 )
-from app.core.identity_helper import update_user_identity
+# identity_helper removed — ZNBNQ ID is now assigned at registration
 from app.core.otp import generate_otp, hash_otp, verify_otp, get_expiry_time
 from app.models.customer import (
     CustomerProfile,
@@ -64,20 +64,8 @@ def calculate_age(dob: date):
     today = date.today()
     return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
 
-# GENERATE USER ID
-def generate_user_id(db: Session):
-    last_user = db.query(User)\
-        .filter(User.id.like("ZBNQ%"))\
-        .order_by(User.id.desc())\
-        .first()
-
-    if not last_user:
-        return "ZBNQ00000001"
-
-    last_number = int(last_user.id.replace("ZBNQ", ""))
-    new_number = last_number + 1
-
-    return f"ZBNQ{new_number:08d}"
+# NOTE: User ID generation (ZNBNQ format) is now handled at registration
+# in app/core/validators.py:generate_znbnq_id()
 
 
 from app.schemas.auth import UnifiedCIFRequest
@@ -429,6 +417,7 @@ def submit_cif(
     principal: AuthenticatedPrincipal = Depends(require("cif:write")),
     db: Session = Depends(get_db)
 ):
+    """Submit the completed CIF profile. No ID migration — ZNBNQ ID was assigned at registration."""
     user = get_current_user(db, principal.user_id)
     if command != "submit":
         raise AppError(code="INVALID_COMMAND", message="Invalid command", http_status=400)
@@ -440,38 +429,29 @@ def submit_cif(
     if not profile:
         raise AppError(code="PREREQUISITE_MISSING", message="Personal details missing. Complete Step 1 first.", http_status=400)
 
-    # Check all sections
+    # Check all mandatory sections
     employment = db.query(EmploymentDetail).filter(EmploymentDetail.customer_profile_id == profile.id).first()
     financial = db.query(FinancialInformation).filter(FinancialInformation.customer_profile_id == profile.id).first()
     fatca = db.query(FATCADeclaration).filter(FATCADeclaration.customer_profile_id == profile.id).first()
 
-    if not employment or not financial or not fatca:
-        raise AppError(code="INCOMPLETE_CIF", message="Complete all CIF sections (1-5) before final submission", http_status=400)
+    # FATCA is only mandatory for USA residents
+    fatca_required = profile.fatca_required
+    if not employment or not financial:
+        raise AppError(code="INCOMPLETE_CIF", message="Complete all CIF sections before final submission", http_status=400)
+    if fatca_required and not fatca:
+        raise AppError(code="INCOMPLETE_CIF", message="FATCA declaration is mandatory for US residents. Please complete the FATCA section before submitting.", http_status=400)
 
-    # Generate NEW User ID in ZBNQ format
-    old_user_id = user.id
-    new_user_id = generate_user_id(db)
-
-    # Mark CIF completed
+    # Mark CIF completed — no ID migration needed
     user.is_cif_completed = True
     profile.customer_status = "ACTIVE"
-    
-    # Update all table references to use the new identity
-    update_user_identity(db, old_user_id, new_user_id)
-
-    # Issue NEW JWT for the new ID
-    new_token = create_access_token({
-        "sub": new_user_id, 
-        "role": "USER",
-        "token_type": "access"
-    })
+    submitted_at = datetime.now(timezone.utc)
 
     db.commit()
 
     return envelope_success({
         "message": "CIF Submitted Successfully",
-        "user_id": new_user_id,
-        "access_token": new_token
+        "user_id": user.id,
+        "submitted_at": submitted_at.isoformat(),
     })
 
 

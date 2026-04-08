@@ -33,10 +33,12 @@ class ErrorDetailResponse(BaseModel):
 # AUTH — REGISTRATION
 # =====================================================
 class RegistrationData(BaseModel):
-    user_id: str = Field(..., json_schema_extra={"example": "f47ac10b-58cc-4372-a5"})
+    """Registration success response data."""
+    user_id: str = Field(..., json_schema_extra={"example": "ZNBNQ000001"})
     message: str = Field(..., json_schema_extra={"example": "Verify with OTP"})
 
 class RegistrationResponse(BaseModel):
+    """Full envelope response for user registration."""
     status: str = Field(..., json_schema_extra={"example": "success"})
     data: RegistrationData
     meta: MetaResponse
@@ -46,7 +48,7 @@ class RegistrationResponse(BaseModel):
         "example": {
             "status": "success",
             "data": {
-                "user_id": "f47ac10b-58cc-4372-a5",
+                "user_id": "ZNBNQ000001",
                 "message": "Verify with OTP"
             },
             "meta": {
@@ -63,15 +65,21 @@ class RegistrationResponse(BaseModel):
 # AUTH — LOGIN (USER)
 # =====================================================
 class UserLoginData(BaseModel):
-    access_token: str = Field(..., json_schema_extra={"example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJaQk5RMDAwMDAwMDEiLCJyb2xlIjoiVVNFUiJ9.abc123"})
+    """Login response data for USER role."""
+    access_token: str = Field(..., json_schema_extra={"example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."})
     token_type: str = Field(..., json_schema_extra={"example": "bearer"})
     role: str = Field(..., json_schema_extra={"example": "USER"})
+    user_id: str = Field(..., json_schema_extra={"example": "ZNBNQ000001"})
     message: str = Field(..., json_schema_extra={"example": "Welcome Vishnu Prasad"})
     is_cif_completed: bool = Field(..., json_schema_extra={"example": True})
     is_kyc_completed: bool = Field(..., json_schema_extra={"example": True})
     application_status: str = Field(..., json_schema_extra={"example": "APPROVED"})
+    credit_account_id: Optional[str] = Field(None, json_schema_extra={"example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"})
+    login_timestamp_utc: str = Field(..., json_schema_extra={"example": "2026-04-08T10:30:00+00:00"})
+    login_timestamp_local: str = Field(..., json_schema_extra={"example": "2026-04-08T16:00:00"})
 
 class UserLoginResponse(BaseModel):
+    """Full envelope response for user login."""
     status: str = Field(..., json_schema_extra={"example": "success"})
     data: UserLoginData
     meta: MetaResponse
@@ -81,13 +89,17 @@ class UserLoginResponse(BaseModel):
         "example": {
             "status": "success",
             "data": {
-                "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJaQk5RMDAwMDAwMDEiLCJyb2xlIjoiVVNFUiJ9.abc123",
+                "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
                 "token_type": "bearer",
                 "role": "USER",
+                "user_id": "ZNBNQ000001",
                 "message": "Welcome Vishnu Prasad",
                 "is_cif_completed": True,
                 "is_kyc_completed": True,
-                "application_status": "APPROVED"
+                "application_status": "APPROVED",
+                "credit_account_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                "login_timestamp_utc": "2026-04-08T10:30:00+00:00",
+                "login_timestamp_local": "2026-04-08T16:00:00"
             },
             "meta": {
                 "request_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
@@ -103,12 +115,17 @@ class UserLoginResponse(BaseModel):
 # AUTH — LOGIN (ADMIN)
 # =====================================================
 class AdminLoginData(BaseModel):
-    access_token: str = Field(..., json_schema_extra={"example": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3OC0xMjM0LTEyMzQtMTIzNC0xMjM0NTY3ODkwYWIiLCJyb2xlIjoiQURNSU4ifQ.xyz789"})
+    """Login response data for admin roles."""
+    access_token: str = Field(..., json_schema_extra={"example": "eyJhbGciOiJIUzI1NiJ9..."})
     token_type: str = Field(..., json_schema_extra={"example": "bearer"})
     role: str = Field(..., json_schema_extra={"example": "ADMIN"})
+    employee_id: Optional[str] = Field(None, json_schema_extra={"example": "ZNBAD000001"})
     message: str = Field(..., json_schema_extra={"example": "Welcome ADMIN: Rajesh Kumar"})
+    login_timestamp_utc: str = Field(..., json_schema_extra={"example": "2026-04-08T10:30:00+00:00"})
+    login_timestamp_local: str = Field(..., json_schema_extra={"example": "2026-04-08T16:00:00"})
 
 class AdminLoginResponse(BaseModel):
+    """Full envelope response for admin login."""
     status: str = Field(..., json_schema_extra={"example": "success"})
     data: AdminLoginData
     meta: MetaResponse
@@ -118,10 +135,13 @@ class AdminLoginResponse(BaseModel):
         "example": {
             "status": "success",
             "data": {
-                "access_token": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3OC0xMjM0LTEyMzQtMTIzNC0xMjM0NTY3ODkwYWIiLCJyb2xlIjoiQURNSU4ifQ.xyz789",
+                "access_token": "eyJhbGciOiJIUzI1NiJ9...",
                 "token_type": "bearer",
                 "role": "ADMIN",
-                "message": "Welcome ADMIN: Rajesh Kumar"
+                "employee_id": "ZNBAD000001",
+                "message": "Welcome ADMIN: Rajesh Kumar",
+                "login_timestamp_utc": "2026-04-08T10:30:00+00:00",
+                "login_timestamp_local": "2026-04-08T16:00:00"
             },
             "meta": {
                 "request_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",

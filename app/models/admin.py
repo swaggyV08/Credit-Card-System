@@ -22,7 +22,5 @@ class Admin(Base):
     password_hash = Column(String, nullable=False)
 
     role = Column(SQLEnum(Role, native_enum=False), nullable=False, server_default=Role.MANAGER.value)
-    department = Column(String(100), nullable=True)
-    employee_id = Column(String(50), nullable=True)
-
+    employee_id = Column(String(50), nullable=False, unique=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

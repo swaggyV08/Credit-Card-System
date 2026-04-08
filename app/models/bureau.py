@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, Integer, Numeric, DateTime, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Column, Integer, Numeric, DateTime, ForeignKey, Enum as SQLEnum, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from app.db.base_class import Base
@@ -13,7 +13,7 @@ class BureauScore(Base):
     __tablename__ = "bureau_scores"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(String(50), ForeignKey("users.id"), nullable=False, index=True)
     score = Column(Integer, nullable=False)
     risk_band = Column(SQLEnum(BureauRiskBand), nullable=False)
     trigger_event = Column(SQLEnum(ScoreTrigger), nullable=False)

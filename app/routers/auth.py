@@ -34,7 +34,7 @@ from app.core.jwt import create_access_token
 from app.core.otp import generate_otp, hash_otp, verify_otp, get_expiry_time
 from app.core.rbac import require, AuthenticatedPrincipal
 from app.core.roles import Role
-from app.core.validators import generate_znbnq_id, normalize_enum_input
+from app.core.validators import generate_znbnq_id, generate_znbad_id, normalize_enum_input
 from app.schemas.base import envelope_success
 from app.schemas.responses import (
     RegistrationResponse, UserLoginResponse, AdminLoginResponse,
@@ -42,7 +42,7 @@ from app.schemas.responses import (
 )
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
-admin_router = APIRouter(prefix="/admin/auth", tags=["Admin: Authentication"])
+admin_router = APIRouter(prefix="", tags=["Admin: Creation"])
 
 
 # ===================================================================
@@ -627,6 +627,12 @@ def add_admin(
     db: Session = Depends(get_db),
 ):
     """Create a new admin account with auto-generated employee ID."""
+    if data.password != data.confirm_password:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "PASSWORD_MISMATCH", "message": "Passwords do not match"}
+        )
+
     try:
         validate_password_rules(data.password)
     except ValueError as e:
@@ -664,13 +670,12 @@ def add_admin(
     hashed_password = hash_value(data.password)
 
     new_admin = Admin(
-        full_name=data.full_name,
+        full_name=f"{data.full_name.first_name} {data.full_name.last_name}".strip(),
         email=data.email,
         role=data.role,
-        department=data.department,
-        employee_id=data.employee_id,
-        country_code=data.country_code,
-        phone_number=data.phone_number,
+        employee_id=generate_znbad_id(db),
+        country_code=data.contact.country_code,
+        phone_number=data.contact.phone_number,
         password_hash=hashed_password,
     )
 

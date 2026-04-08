@@ -27,9 +27,25 @@ def manage_fee(
     principal: AuthenticatedPrincipal = Depends(require("fee:apply"))
 ):
     """
-    Apply or waive a fee unified endpoint.
-    - command=apply: Uses `apply_request` body.
-    - command=waive: Uses `waive_request` body and requires `fee_id` query param.
+    Apply or waive a fee — unified endpoint.
+
+    **What it does:**
+    A single POST endpoint that handles both fee application and fee waiver via
+    the `command` query parameter. Applying a fee creates a new fee transaction
+    on the card. Waiving a fee marks an existing fee as waived with a reason.
+
+    **Query Parameter `command`:**
+    - `apply` — Charges a new fee to the card. Uses `apply_request` body.
+    - `waive` — Waives an existing fee. Uses `waive_request` body + `fee_id` query param.
+
+    **Fee Type enum (in `CreateFeeRequest`):**
+    `ANNUAL_FEE` | `LATE_PAYMENT_FEE` | `OVER_LIMIT_FEE` | `CASH_ADVANCE_FEE` |
+    `FOREIGN_TRANSACTION_FEE` | `RETURNED_PAYMENT_FEE` | `CARD_REPLACEMENT_FEE` |
+    `INTEREST_CHARGE` | `OVERLIMIT_FEE`
+
+    **Roles:** `fee:apply` (Admin / Super Admin only)
+
+    **Response:** `FeeSchema` with fee details, status, and timestamps.
     """
     if command == "apply":
         if not apply_request:

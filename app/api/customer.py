@@ -11,6 +11,7 @@ from app.core.jwt import decode_access_token, create_access_token
 from app.api.deps import get_db
 from app.core.rbac import require, AuthenticatedPrincipal
 from app.schemas.base import envelope_success
+from app.schemas.responses import CIFStageResponse, CIFSubmitResponse, KYCUploadResponse
 from app.core.app_error import AppError
 from app.models.auth import User
 from app.schemas.auth import (
@@ -94,6 +95,7 @@ class CifCommand(str, Enum):
 @router.put(
     "/cif",
     summary="Update CIF Information (Staged)",
+    response_model=CIFStageResponse,
     dependencies=[Depends(require("cif:write"))]
 )
 def save_cif_unified(
@@ -419,6 +421,7 @@ def get_cif_summary(
 @router.post(
     "/cif",
     summary="Submit Completed CIF",
+    response_model=CIFSubmitResponse,
     dependencies=[Depends(require("cif:write"))]
 )
 def submit_cif(
@@ -476,6 +479,7 @@ def submit_cif(
 @router.post(
     "/kyc",
     summary="Upload KYC Document",
+    response_model=KYCUploadResponse,
     dependencies=[Depends(require("kyc:conduct"))]
 )
 async def conduct_kyc(

@@ -12,6 +12,7 @@ from app.models.auth import User
 from app.core.rbac import require, AuthenticatedPrincipal
 from app.schemas.base import envelope_success
 from app.core.app_error import AppError
+from app.schemas.responses import CreditProductCreateResponse as CreditProductCreateEnvelope, CreditProductStatusResponse, CreditProductDeleteResponse
 from app.admin.schemas.credit_product import (
     CreditProductCreate, 
     CreditProductResponse, 
@@ -34,6 +35,7 @@ router = APIRouter(prefix="/credit-products", tags=["Admin: Credit Products"])
 @router.post(
     "/",
     summary="Create Credit Product",
+    response_model=CreditProductCreateEnvelope,
     dependencies=[Depends(require("credit_product:create"))]
 )
 def create_credit_product(
@@ -143,6 +145,7 @@ def get_credit_products(
 @router.post(
     "/{product_id}",
     summary="Update Product Status",
+    response_model=CreditProductStatusResponse,
     dependencies=[Depends(require("credit_product:status"))]
 )
 def update_credit_product_status(
@@ -203,6 +206,7 @@ def update_credit_product_status(
 @router.delete(
     "/{product_id}",
     summary="Delete Credit Product",
+    response_model=CreditProductDeleteResponse,
     dependencies=[Depends(require("credit_product:delete"))]
 )
 def delete_credit_product(

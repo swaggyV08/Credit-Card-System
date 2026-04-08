@@ -122,7 +122,6 @@ class CardActionResponse(BaseModel):
 # -----------------
 
 class CCMCardIssueRequest(BaseModel):
-    credit_account_id: uuid.UUID = Field(..., description="The account associated with the new card")
     card_product_id: uuid.UUID = Field(..., description="The template/product ID for the card")
     card_type: CCMReissueType = Field(..., description="PHYSICAL or VIRTUAL")
     embossed_name: str = Field(..., min_length=2, description="The name as it will appear on the card")

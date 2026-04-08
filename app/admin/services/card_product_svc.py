@@ -25,6 +25,14 @@ class CardProductService:
         return query.offset(skip).limit(limit).all()
 
     @staticmethod
+    def count_all_cards(db: Session, status: Optional[ProductStatus] = None) -> int:
+        query = db.query(CardProductCore)
+        if status:
+            from app.admin.models.card_product import CardProductGovernance
+            query = query.join(CardProductGovernance).filter(CardProductGovernance.status == status)
+        return query.count()
+
+    @staticmethod
     def approve_card_product(db: Session, card_id: UUID, approver_id: UUID, effective_to: Optional[datetime] = None) -> CardProductCore:
         card = CardProductService.get_card(db, card_id)
         

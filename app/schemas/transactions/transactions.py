@@ -19,44 +19,28 @@ from app.models.transactions.enums import (
 # =====================================================
 # GROUP 1 — TRANSACTION SCHEMAS
 # =====================================================
-class BillingAddressSchema(BaseModel):
-    line1: str
-    line2: str | None = None
-    city: str
-    state: str
-    postal_code: str
-    country: str
-
-
 class CreateTransactionRequest(BaseModel):
     amount: Decimal = Field(..., gt=0, decimal_places=2, description="Transaction amount (>0, 2 decimal places)")
     currency: str = Field(default="INR", min_length=3, max_length=3, description="ISO 4217 currency code")
     transaction_type: TransactionType
     merchant_id: UUID
     merchant_name: str = Field(..., min_length=1, max_length=255)
-    merchant_category_code: str = Field(..., min_length=4, max_length=4, description="4-digit MCC")
-    merchant_country: str = Field(..., min_length=2, max_length=2, description="ISO 3166-1 alpha-2")
-    card_not_present: bool = False
-    billing_address: BillingAddressSchema | None = None
-    cvv2: str | None = Field(None, min_length=3, max_length=4)
-    terminal_id: str | None = None
-    pos_entry_mode: POSEntryMode | None = None
-    installments: int | None = Field(None, ge=1, description="EMI splits, 1=no split")
-    metadata: dict | None = None
+    merchant_category_code: str = Field(..., description="Merchant category code")
+    merchant_country: str = Field(..., description="Merchant country")
+    pos_entry_mode: bool = Field(default=True, description="Point of sale entry mode flag")
 
-    @field_validator("cvv2")
-    @classmethod
-    def cvv2_required_if_cnp(cls, v, info):
-        if info.data.get("card_not_present") and not v:
-            raise ValueError("CVV2 is required for card-not-present transactions")
-        return v
-
-    @field_validator("merchant_category_code")
-    @classmethod
-    def validate_mcc(cls, v):
-        if not v.isdigit():
-            raise ValueError("MCC must be a 4-digit numeric code")
-        return v
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "amount": 1,
+            "currency": "INR",
+            "transaction_type": "PURCHASE",
+            "merchant_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+            "merchant_name": "string",
+            "merchant_category_code": "string",
+            "merchant_country": "string",
+            "pos_entry_mode": True
+        }
+    })
 
 
 class TransactionResponse(BaseModel):

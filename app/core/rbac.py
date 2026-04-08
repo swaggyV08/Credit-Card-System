@@ -61,22 +61,22 @@ ROLE_PERMISSIONS: dict[str, set[Role]] = {
 
     # ── Applications ────────────────────────────────────────────
     "application:submit":         {Role.USER, Role.SALES},
-    "application:read":           {Role.USER, Role.SALES, Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
-    "application:evaluate":       {Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
-    "application:configure":      {Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
+    "application:read":           {Role.SALES, Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
+    "application:evaluate":       {Role.MANAGER},
+    "application:configure":      {Role.MANAGER},
     "application:issue_card":     {Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
 
     # ── Credit Products ─────────────────────────────────────────
     "credit_product:create":      {Role.ADMIN, Role.SUPERADMIN},
     "credit_product:read":        {Role.ADMIN, Role.MANAGER, Role.SALES, Role.SUPERADMIN},
-    "credit_product:status":      {Role.ADMIN, Role.SUPERADMIN},
-    "credit_product:delete":      {Role.ADMIN, Role.SUPERADMIN},
+    "credit_product:status":      {Role.MANAGER},
+    "credit_product:delete":      {Role.MANAGER},
 
     # ── Card Products ───────────────────────────────────────────
     "card_product:create":        {Role.ADMIN, Role.SUPERADMIN},
     "card_product:read":          {Role.ADMIN, Role.MANAGER, Role.SALES, Role.SUPERADMIN},
-    "card_product:approve":       {Role.ADMIN, Role.SUPERADMIN},
-    "card_product:delete":        {Role.ADMIN, Role.SUPERADMIN},
+    "card_product:approve":       {Role.MANAGER},
+    "card_product:delete":        {Role.MANAGER},
 
     # ── User Management (admin) ──────────────────────────────────
     "user:list":                  {Role.ADMIN, Role.MANAGER, Role.SUPERADMIN},
@@ -126,7 +126,7 @@ ROLE_PERMISSIONS: dict[str, set[Role]] = {
     # ── Fraud ────────────────────────────────────────────────────
     "fraud:read":                 {Role.ADMIN, Role.MANAGER, Role.SUPERADMIN},
     # ── Bureau ───────────────────────────────────────────────────
-    "bureau:read_own":            {Role.USER},
+    "bureau:read_own":            {Role.USER, Role.SALES, Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
     "bureau:read_any":            {Role.SALES, Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
     "bureau:trigger":             {Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
 }

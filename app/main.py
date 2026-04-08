@@ -26,7 +26,7 @@ from app.admin.api import credit_product
 from app.routers import (
     card_products, admin_users, credit_accounts, cards,
     transactions, disputes, settlement,
-    statements, fees, payments, controls, billing
+    statements, payments, controls, billing
 )
 from app.core.exceptions import BankGradeException
 from app.core.app_error import AppError
@@ -146,7 +146,11 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         message = exc.detail.get("message", str(exc.detail))
     logger.warning(f"HTTPException [{exc.status_code}]: {message}")
     error = ErrorDetail(code=code, message=message)
-    return JSONResponse(status_code=exc.status_code, content=envelope_error([error], exc.status_code))
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=envelope_error([error], exc.status_code),
+        headers=exc.headers
+    )
 
 
 @app.exception_handler(Exception)
@@ -174,7 +178,6 @@ app.include_router(transactions.router)
 app.include_router(disputes.router)
 app.include_router(settlement.router)
 app.include_router(statements.router)
-app.include_router(fees.router)
 app.include_router(payments.router)
 app.include_router(controls.router)
 app.include_router(billing.router)

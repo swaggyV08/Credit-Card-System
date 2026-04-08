@@ -5,6 +5,7 @@ from typing import List, Optional
 from app.api.deps import get_db
 from app.core.rbac import require, AuthenticatedPrincipal
 from app.schemas.base import envelope_success
+from app.schemas.responses import UserListResponse
 from app.core.app_error import AppError
 from app.models.auth import User
 from app.models.customer import CustomerProfile
@@ -13,12 +14,23 @@ from app.admin.schemas.user_mgmt import AdminUserSummaryResponse, AdminUserDetai
 
 router = APIRouter(prefix="/customers", tags=["Admin: User Management"])
 
-@router.get("/")
+@router.get("/", response_model=UserListResponse)
 def list_cif_completed_users(
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require("user:list"))
 ):
-    """Retrieves all users who have completed CIF onboarding."""
+    """
+    Retrieves all users who have completed CIF (Customer Information File) onboarding.
+
+    **What it does:**
+    Returns a flat list of all users whose `is_cif_completed` flag is `True`,
+    along with their linked Credit Account and Card IDs (if any). This is the
+    primary admin dashboard view for user pipeline management.
+
+    **Roles:** `user:list` (Admin / Super Admin only)
+
+    **Response:** List of `{ user_id, credit_account_id, card_id, account_status }`
+    """
     results = db.query(
         User.id.label("user_id"),
         CreditAccount.id.label("credit_account_id"),
@@ -51,7 +63,24 @@ def get_user_admin_detail(
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require("user:detail"))
 ):
-    """Retrieves comprehensive admin view of a user."""
+    """
+    Retrieves comprehensive admin view of a single user.
+
+    **What it does:**
+    Fetches the full user profile including all linked credit accounts and
+    cards nested underneath. Provides a 360-degree operational view for
+    admin support and compliance review.
+
+    **Path Parameter:**
+    - `user_id`: The CIF-based user ID string (e.g., `ZBQIN0000000001`)
+
+    **Roles:** `user:detail` (Admin / Super Admin only)
+
+    **Response:** `AdminUserDetailsResponse` containing:
+    `{ user_id, email, phone_number, is_cif_completed, is_kyc_completed,
+      full_name, total_credit_accounts, total_cards,
+      credit_accounts: [{ credit_account_id, readable_id, account_status, cards: [...] }] }`
+    """
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise AppError(code="NOT_FOUND", message="User not found", http_status=404)

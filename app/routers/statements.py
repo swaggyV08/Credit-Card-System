@@ -5,13 +5,14 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.core.rbac import require, AuthenticatedPrincipal
 from app.schemas.base import envelope_success
+from app.schemas.responses import StatementListResponse
 
 from app.schemas.transactions.operations import StatementSummarySchema, CreateExportRequest
 from app.services.transactions.operations_service import StatementService
 
-router = APIRouter(tags=["Statements"])
+router = APIRouter(tags=["Billing"])
 
-@router.get("/cards/{card_id}/statements")
+@router.get("/cards/{card_id}/statements", response_model=StatementListResponse)
 def list_statements(
     card_id: uuid.UUID,
     year: int | None = None,
@@ -22,7 +23,25 @@ def list_statements(
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require("statement:read"))
 ):
-    """Lists billing cycle statements. Use ?detail=true to get full details instead of using a separate endpoint."""
+    """
+    Lists billing cycle statements for a card.
+
+    **What it does:**
+    Returns paginated monthly billing statements. Use `?detail=true` to
+    include full line-item breakdowns (purchases, fees, interest, payments)
+    instead of just summaries.
+
+    **Query Parameters:**
+    - `year` / `month`: Filter statements by billing period
+    - `detail`: Boolean — if `true`, returns `StatementDetailSchema` with line items
+    - `page` / `page_size`: Pagination controls
+
+    **Statement Status enum:** `OPEN` | `BILLED` | `PAID` | `PARTIALLY_PAID` | `OVERDUE` | `WAIVED`
+
+    **Roles:** `statement:read` (User / Admin)
+
+    **Response:** `{ data: [StatementSummary or StatementDetail], meta: { total, page, page_size } }`
+    """
     if month is not None and (month < 1 or month > 12):
         from app.core.exceptions import AppError
         raise AppError(code="INVALID_MONTH", message="Month must be between 1 and 12", http_status=422)

@@ -5,6 +5,10 @@ Tables: transactions, credit_holds, audit_log
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.transactions.disputes import Dispute
 
 from sqlalchemy import (
     String, Numeric, Boolean, DateTime, Text, ForeignKey, Index, JSON

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from app.api.deps import get_db
 from app.core.rbac import require, AuthenticatedPrincipal
 from app.schemas.base import envelope_success, build_pagination
+from app.schemas.responses import CardProductCreateResponse, CardProductApproveResponse, CardProductDeleteResponse
 from app.models.enums import ProductStatus
 from app.admin.schemas.card_product import (
     CardProductCreate, 
@@ -25,13 +26,30 @@ from app.core.app_error import AppError
 
 router = APIRouter(prefix="/card-products", tags=["Card Products"])
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, response_model=CardProductCreateResponse)
 def create_card_product(
     data: CardProductCreate,
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require("card_product:create"))
 ):
-    """Creates a new Card Product linked to an existing Credit Product."""
+    """
+    Creates a new Card Product linked to an existing Credit Product.
+
+    **What it does:**
+    Provisions a full card product blueprint (billing config, transaction controls,
+    usage limits, rewards, authorization rules, lifecycle rules, fraud profile, FX config)
+    and links it to an existing Credit Product via its `credit_product_code`.
+    The product is created in DRAFT status and requires separate approval.
+
+    **Enums used in request body (`CardProductCreate`):**
+    - `card_network`: `VISA` | `MASTERCARD` | `RUPAY` | `AMEX`
+    - `card_form_factor`: `PHYSICAL` | `VIRTUAL` | `HYBRID`
+    - `card_variant`: `CLASSIC` | `GOLD` | `PLATINUM` | `SIGNATURE` | `INFINITE`
+
+    **Roles:** `card_product:create` (Admin / Super Admin only)
+
+    **Response:** `{ card_product_id, credit_product_id, effective_from, effective_to, created_at, created_by }`
+    """
     credit_product = db.query(CreditProductInformation).filter(CreditProductInformation.product_code == data.credit_product_code).first()
     if not credit_product:
         raise AppError(code="NOT_FOUND", message="Credit Product not found", http_status=404)
@@ -52,7 +70,14 @@ def create_card_product(
     db.add(CardTransactionControls(card_product_id=card.id, **data.transaction_controls.model_dump()))
     db.add(CardFxConfiguration(card_product_id=card.id, **data.fx_configuration.model_dump()))
     db.add(CardUsageLimits(card_product_id=card.id, **data.usage_limits.model_dump()))
-    db.add(CardRewardsConfiguration(card_product_id=card.id, **data.rewards_config.model_dump()))
+    
+    rewards_dump = data.rewards_config.model_dump()
+    if rewards_dump.get("merchant_category_bonus"):
+        rewards_dump["merchant_category_bonus"] = {
+            k: float(v) for k, v in rewards_dump["merchant_category_bonus"].items()
+        }
+    db.add(CardRewardsConfiguration(card_product_id=card.id, **rewards_dump))
+    
     db.add(CardAuthorizationRules(card_product_id=card.id, **data.authorization_rules.model_dump()))
     db.add(CardLifecycleRules(card_product_id=card.id, **data.lifecycle_rules.model_dump()))
     db.add(CardFraudRiskProfile(card_product_id=card.id, **data.fraud_profile.model_dump()))
@@ -69,7 +94,6 @@ def create_card_product(
     
     return envelope_success({
         "card_product_id": str(card.id),
-        "credit_product_id": str(card.credit_product_id),
         "effective_from": gov.effective_from.isoformat() if gov.effective_from else None,
         "effective_to": gov.effective_to.isoformat() if gov.effective_to else None,
         "created_at": gov.created_at.isoformat() if gov.created_at else None,
@@ -86,7 +110,18 @@ def list_card_products(
 ):
     """
     Retrieves all available Card Products with pagination.
-    Supports filtering by lifecycle status.
+
+    **What it does:**
+    Returns a paginated list of all card product blueprints. Supports filtering
+    by lifecycle status to find only ACTIVE, DRAFT, or SUSPENDED products.
+
+    **Query Parameters:**
+    - `status_filter`: `DRAFT` | `ACTIVE` | `SUSPENDED` | `CLOSED` | `REJECTED`
+    - `page` / `limit`: Pagination controls
+
+    **Roles:** `card_product:read` (Admin / Super Admin)
+
+    **Response:** `{ items: [CardProductSummary], pagination: { total, page, limit } }`
     """
     results = CardProductService.get_all_cards(
         db, 
@@ -104,7 +139,7 @@ def list_card_products(
         "pagination": build_pagination(total, page, limit)
     })
 
-@router.post("/{card_product_id}")
+@router.post("/{card_product_id}", response_model=CardProductApproveResponse)
 def approve_card_product(
     card_product_id: UUID, 
     command: str = Query(..., description="Action: 'approve'"),
@@ -112,7 +147,23 @@ def approve_card_product(
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require("card_product:approve"))
 ):
-    """Transitions a Card Product's lifecycle status via the `command` query parameter. Commands: `approve`."""
+    """
+    Transitions a Card Product's lifecycle status via the `command` query parameter.
+
+    **What it does:**
+    Moves a DRAFT card product to ACTIVE status. Sets the governance timestamps
+    (`effective_from`, `effective_to`) and records the approving admin.
+
+    **Query Parameter:**
+    - `command`: Currently only `approve` is supported.
+
+    **Request Body (`CardProductApprovalRequest` — optional):**
+    - `effective_to`: Optional expiry date for the product.
+
+    **Roles:** `card_product:approve` (Super Admin only)
+
+    **Response:** `{ card_product_id, credit_product_id, effective_from, effective_to, approved_by }`
+    """
     if command != "approve":
         raise AppError(code="INVALID_COMMAND", message="Invalid command. Currently only 'approve' is supported.", http_status=400)
     
@@ -133,13 +184,24 @@ def approve_card_product(
         "approved_by": gov.approved_by
     })
 
-@router.delete("/{card_product_id}")
+@router.delete("/{card_product_id}", response_model=CardProductDeleteResponse)
 def delete_card_product(
     card_product_id: UUID,
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require("card_product:delete"))
 ):
-    """Permanently deletes a Card Product and all its associated configurations."""
+    """
+    Permanently deletes a Card Product and all its associated configurations.
+
+    **What it does:**
+    Hard-deletes the card product blueprint and all child config records
+    (billing, transaction controls, usage limits, rewards, authorization rules,
+    lifecycle rules, fraud profile, governance, FX config). This action is irreversible.
+
+    **Roles:** `card_product:delete` (Super Admin only)
+
+    **Response:** `{ message: "Card Product permanently deleted" }`
+    """
     CardProductService.delete_card_product(db, card_product_id)
     return envelope_success({"message": "Card Product permanently deleted"})
 

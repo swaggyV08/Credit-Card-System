@@ -1,7 +1,10 @@
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from sqlalchemy import String, Boolean, DateTime, ForeignKey
+
+if TYPE_CHECKING:
+    from app.models.customer import CustomerProfile
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func

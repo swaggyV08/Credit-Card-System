@@ -136,6 +136,7 @@ class CreditProductCreateResponse(BaseModel):
     product_id: UUID = Field(validation_alias="id")
     product_code: str
     product_name: str
+    model_config = ConfigDict(from_attributes=True)
 
 class DateInput(BaseModel):
     day: int = Field(..., ge=1, le=31)

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.core.rbac import require, AuthenticatedPrincipal
 from app.schemas.base import envelope_success
+from app.schemas.responses import BillingGenerateResponse, LateFeeResponse, FraudFlagListResponse
 from app.schemas.billing import (
     BillingGenerateRequest,
     StatementSummary,
@@ -29,7 +30,7 @@ from app.models.billing import FraudFlag
 router = APIRouter(tags=["Billing"])
 
 
-@router.post("/billing/generate", status_code=200)
+@router.post("/billing/generate", status_code=200, response_model=BillingGenerateResponse)
 def generate_billing_statements(
     request: BillingGenerateRequest,
     db: Session = Depends(get_db),
@@ -38,9 +39,20 @@ def generate_billing_statements(
     """
     Admin-only: Trigger statement generation for the specified billing cycle.
 
-    This simulates the banking heuristic of computing ADB interest,
-    applying grace periods, and generating line-item statements
-    for all active credit accounts.
+    **What it does:**
+    Runs the billing engine across all active credit accounts. For each account,
+    it computes Average Daily Balance (ADB) interest, applies grace periods,
+    generates line-item statements, and sets payment due dates.
+
+    **Request Body (`BillingGenerateRequest`):**
+    - `cycle_date`: The cycle-end date to generate statements for
+    - `purchase_apr`: Annual purchase APR (default: 35.99%)
+    - `cash_advance_apr`: Annual cash advance APR (default: 41.99%)
+    - `late_fee`: Fixed late fee amount (default: ₹500.00)
+
+    **Roles:** `billing:generate` (Admin / Super Admin only)
+
+    **Response:** `{ statements_generated, cycle_date, details: [...] }`
     """
     results = BillingService.generate_statements(
         db=db,
@@ -56,13 +68,22 @@ def generate_billing_statements(
     })
 
 
-@router.post("/billing/late-fees", status_code=200)
+@router.post("/billing/late-fees", status_code=200, response_model=LateFeeResponse)
 def apply_late_fees(
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require("billing:generate")),
 ):
     """
     Admin-only: Apply late fees to all overdue statements.
+
+    **What it does:**
+    Sweeps all existing statements that are past their `payment_due_date`
+    and have not been fully paid. Automatically charges the configured late fee
+    amount to each overdue account and updates statement status.
+
+    **Roles:** `billing:generate` (Admin / Super Admin only)
+
+    **Response:** `{ late_fees_applied, details: [...] }`
     """
     results = BillingService.apply_late_fees(db)
     return envelope_success({
@@ -71,7 +92,7 @@ def apply_late_fees(
     })
 
 
-@router.get("/cards/{card_id}/fraud-flags")
+@router.get("/cards/{card_id}/fraud-flags", response_model=FraudFlagListResponse)
 def list_fraud_flags(
     card_id: uuid.UUID,
     page: int = Query(1, ge=1),
@@ -79,7 +100,21 @@ def list_fraud_flags(
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require("transaction:read")),
 ):
-    """List all fraud flags for a card."""
+    """
+    List all fraud flags for a card.
+
+    **What it does:**
+    Returns a paginated history of all fraud detection flags triggered by
+    transactions on this card. Each flag includes the rule that fired,
+    the action taken (e.g., BLOCK, FLAG), and the timestamp.
+
+    **Query Parameters:**
+    - `page` / `page_size`: Pagination controls
+
+    **Roles:** `transaction:read` (User / Admin)
+
+    **Response:** `{ data: [FraudFlagSummary], meta: { total, page, page_size } }`
+    """
     query = db.query(FraudFlag).filter(FraudFlag.card_id == card_id)
     total = query.count()
     flags = query.order_by(FraudFlag.flagged_at.desc()).offset(

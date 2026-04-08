@@ -1,7 +1,10 @@
 import uuid
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 from sqlalchemy import String, Boolean, Numeric, Integer, ForeignKey, DateTime
+
+if TYPE_CHECKING:
+    from app.models.auth import User
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship

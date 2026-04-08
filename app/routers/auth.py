@@ -26,6 +26,10 @@ from app.core.otp import generate_otp, hash_otp, verify_otp, get_expiry_time
 from app.core.rbac import require, AuthenticatedPrincipal
 from app.core.roles import Role
 from app.schemas.base import envelope_success
+from app.schemas.responses import (
+    RegistrationResponse, UserLoginResponse, PasswordResetResponse,
+    OTPResponse, AddAdminResponse
+)
 
 # Use two routers for prefix logic
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -38,6 +42,7 @@ admin_router = APIRouter(prefix="/admin/auth", tags=["Admin: Authentication"])
 @router.post(
     "/registrations",
     status_code=status.HTTP_201_CREATED,
+    response_model=RegistrationResponse,
     summary="Step 1: Create user registration",
     description="""
 Step 1 of 2 in the registration flow.
@@ -128,6 +133,7 @@ def create_registration(
 
 @router.post(
     "/login",
+    response_model=UserLoginResponse,
     summary="Unified Login for Users and Admins",
     description="Validates email and password, returning JWT token. Requires command=USER or command=ADMIN.",
 )
@@ -187,11 +193,24 @@ def unified_login(
         
         name = f"{user.customer_profile.first_name} {user.customer_profile.last_name}" if user.customer_profile else "User"
 
+        # Derive application_status from latest CreditCardApplication
+        from app.admin.models.card_issuance import CreditCardApplication
+        latest_app = db.query(CreditCardApplication).filter(
+            CreditCardApplication.user_id == user.id
+        ).order_by(CreditCardApplication.submitted_at.desc()).first()
+        
+        app_status = "NOT_APPLIED"
+        if latest_app and latest_app.application_status:
+            app_status = getattr(latest_app.application_status, "value", latest_app.application_status)
+
         return envelope_success({
             "access_token": token,
             "token_type": "bearer",
             "role": "USER",
             "message": f"Welcome {name}".strip(),
+            "is_cif_completed": user.is_cif_completed,
+            "is_kyc_completed": user.is_kyc_completed,
+            "application_status": app_status,
         })
 
 
@@ -199,8 +218,9 @@ def unified_login(
 # ===================================================================
 # PASSWORD RESET — requires pre-verified OTP
 # ===================================================================
-@router.patch(
+@router.put(
     "/passwords/{country_code}/{phone_number}",
+    response_model=PasswordResetResponse,
     summary="Reset password",
 )
 def verify_password_reset(
@@ -251,6 +271,7 @@ def verify_password_reset(
 # ===================================================================
 @router.post(
     "/otp/{user_id}",
+    response_model=OTPResponse,
     summary="OTP dispatcher — generate or verify",
     description="""
 **Unified OTP endpoint for all OTP operations.**
@@ -386,6 +407,7 @@ async def generic_otp_dispatcher(
 @admin_router.post(
     "/admins",
     status_code=status.HTTP_201_CREATED,
+    response_model=AddAdminResponse,
     summary="Create admin account",
     dependencies=[Depends(require("admin:create"))]
 )

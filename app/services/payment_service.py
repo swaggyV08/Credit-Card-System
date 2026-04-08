@@ -21,7 +21,8 @@ from sqlalchemy import and_, func
 from app.admin.models.card_issuance import Card, CreditAccount
 from app.models.billing import Statement, Payment
 from app.models.transactions.enums import PaymentStatus, StatementStatus
-from app.models.enums import CardStatus
+from app.models.enums import CardStatus, ScoreTrigger
+from app.services.bureau_service import compute_bureau_score
 from app.core.exceptions import (
     PaymentNotFoundError,
     CardNotActiveError,
@@ -184,6 +185,15 @@ class PaymentWaterfallService:
 
         db.commit()
         db.refresh(payment)
+
+        # ── Trigger Bureau Score (Async/Non-blocking) ──
+        try:
+            import asyncio
+            from uuid import UUID
+            user_id = UUID(str(account.user_id))
+            asyncio.create_task(compute_bureau_score(user_id, ScoreTrigger.PAYMENT_MADE))
+        except Exception as e:
+            logger.error(f"Failed to trigger bureau score for user {account.user_id}: {e}")
 
         logger.info(
             "Payment %s processed: ₹%s → fees=%s interest=%s ca=%s purchases=%s",

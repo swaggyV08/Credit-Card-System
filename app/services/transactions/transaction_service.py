@@ -25,8 +25,10 @@ from app.models.transactions.enums import (
     DisputeType, DisputeStatus, ProvisionalCreditStatus,
     RiskTier, AuditAction,
 )
-from app.models.enums import CardStatus
+from app.models.enums import CardStatus, ScoreTrigger
+from app.services.bureau_service import compute_bureau_score
 from app.core.redis import redis_service
+from app.core.app_error import AppError
 from app.core.exceptions import (
     VelocityExceededError, InsufficientFundsError, CardNotActiveError,
 )
@@ -78,21 +80,7 @@ class TransactionService:
         # Ensure dispute is loaded (it's a relationship)
         # SQLAlchemy will handle this if the relationship is defined
         return txn
-        """Step 1: Card Validation Gate."""
-        card = db.query(Card).filter(Card.id == card_id).first()
-        if not card:
-            raise HTTPException(status_code=404, detail="Card not found")
-
-        if card.card_status != CardStatus.ACTIVE:
-            raise CardNotActiveError(card_id, current_status=card.card_status.value)
-
-        # Ownership check (skip for admin)
-        if not is_admin and user_id:
-            account = db.query(CreditAccount).filter(CreditAccount.id == card.credit_account_id).first()
-            if not account or str(account.user_id) != str(user_id):
-                raise HTTPException(status_code=403, detail="This card does not belong to you")
-
-        return card
+        return txn
 
     @staticmethod
     def check_velocity(db: Session, card_id: uuid.UUID, amount: Decimal):
@@ -554,6 +542,22 @@ class SettlementService:
         _write_audit(db, "SETTLEMENT_RUN", str(run.id), AuditAction.SETTLEMENT_COMPLETED.value,
                      actor_id=actor_id)
         db.commit()
+
+        # ── Trigger Bureau Score (Async/Non-blocking) ──
+        try:
+            import asyncio
+            from uuid import UUID
+            user_ids = set()
+            for txn in cleared_txns:
+                acc = db.query(CreditAccount).filter(CreditAccount.id == txn.account_id).first()
+                if acc and acc.user_id:
+                    user_ids.add(UUID(str(acc.user_id)))
+            
+            for u_id in user_ids:
+                asyncio.create_task(compute_bureau_score(u_id, ScoreTrigger.SETTLEMENT_RUN))
+        except Exception as e:
+            import logging
+            logging.getLogger("zbanque.bureau").error(f"Failed to trigger bureau scores after settlement: {e}")
 
         return {
             "settlement_run_id": run.id,

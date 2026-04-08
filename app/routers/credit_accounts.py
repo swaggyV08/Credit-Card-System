@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from app.api import deps
 from app.core.rbac import require, AuthenticatedPrincipal
 from app.schemas.base import envelope_success
+from app.schemas.responses import CreditAccountListResponse, CreditAccountUpdateResponse
 from app.admin.schemas.credit_account_admin import CreditAccountDetail
 from app.admin.schemas.unified_updates import AdminAccountCommand, UnifiedAccountUpdateRequest
 from app.admin.services.credit_account_admin_svc import CreditAccountAdminService
@@ -15,7 +16,7 @@ from app.core.app_error import AppError
 
 router = APIRouter(prefix="/credit-accounts", tags=["Admin: Credit Accounts"])
 
-@router.get("/")
+@router.get("/", response_model=CreditAccountListResponse)
 def list_accounts(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
@@ -24,7 +25,22 @@ def list_accounts(
     db: Session = Depends(deps.get_db),
     principal: AuthenticatedPrincipal = Depends(require("credit_account:list"))
 ):
-    """Retrieves a paginated list of credit accounts with optional filters by status and product_code."""
+    """
+    Retrieves a paginated list of credit accounts with optional filters.
+
+    **What it does:**
+    Returns all credit accounts in the system. Supports filtering by account
+    lifecycle status and product code for operational dashboards and audits.
+
+    **Query Parameters:**
+    - `status`: `PENDING` | `ACTIVE` | `SUSPENDED` | `FROZEN` | `DELINQUENT` | `CLOSED` | `CHARGED_OFF`
+    - `product_code`: Filter by the linked credit product code string
+    - `page` / `limit`: Pagination controls
+
+    **Roles:** `credit_account:list` (Admin / Super Admin only)
+
+    **Response:** `{ page, limit, total_records, accounts: [...] }`
+    """
     accounts, total = CreditAccountAdminService.list_accounts(
         db, page=page, limit=limit, status=status, product_code=product_code
     )
@@ -42,11 +58,22 @@ def get_account_details(
     db: Session = Depends(deps.get_db),
     principal: AuthenticatedPrincipal = Depends(require("credit_account:detail"))
 ):
-    """Retrieves full details of a single credit account."""
+    """
+    Retrieves full details of a single credit account.
+
+    **What it does:**
+    Returns the complete financial snapshot of a credit account including
+    credit limit, available credit, outstanding balance, APR configuration,
+    billing cycle, risk flags, overlimit settings, and version number.
+
+    **Roles:** `credit_account:detail` (Admin / Super Admin only)
+
+    **Response:** `CreditAccountDetail` schema with all financial fields.
+    """
     acc = CreditAccountAdminService.get_account(db, credit_account_id)
     return envelope_success(acc.model_dump(mode='json') if hasattr(acc, 'model_dump') else acc)
 
-@router.patch("/{credit_account_id}")
+@router.put("/{credit_account_id}", response_model=CreditAccountUpdateResponse)
 def update_credit_account_unified(
     req: UnifiedAccountUpdateRequest,
     credit_account_id: UUID = Path(...),
@@ -55,8 +82,31 @@ def update_credit_account_unified(
     principal: AuthenticatedPrincipal = Depends(require("credit_account:update"))
 ):
     """
-    Unified endpoint for credit account updates.
-    Supported commands: limit, status, freeze, billing_cycle, risk, interest, overlimit.
+    Unified endpoint for credit account updates via command dispatch.
+
+    **What it does:**
+    A single PATCH endpoint that accepts a `command` query parameter to determine
+    which aspect of the credit account to modify. Only the field matching the
+    command is accepted in the request body — extra fields will be rejected.
+
+    **Query Parameter `command` (enum `AdminAccountCommand`):**
+    - `limit` — Change credit limit (requires `limits` body)
+    - `status` — Transition account status (requires `status` body)
+    - `freeze` — Freeze or unfreeze account (requires `freeze` body)
+    - `billing_cycle` — Update billing cycle day and grace period (requires `billing_cycle` body)
+    - `risk` — Set risk flag (requires `risk` body)
+    - `interest` — Modify APR rates (requires `interest` body)
+    - `overlimit` — Configure overlimit buffer and fees (requires `overlimit` body)
+
+    **Enums used in sub-request bodies:**
+    - `CCMAccountStatus`: `PENDING` | `ACTIVE` | `SUSPENDED` | `FROZEN` | `DELINQUENT` | `CLOSED` | `CHARGED_OFF`
+    - `CCMAccountRiskFlag`: `NONE` | `LOW_RISK` | `MEDIUM_RISK` | `HIGH_RISK` | `CRITICAL`
+    - `CCMLimitReasonCode`: `INCOME_REVIEW` | `RISK_ADJUSTMENT` | `PROMOTIONAL` | `MANUAL_OVERRIDE`
+    - `CCMStatusReasonCode`: `KYC_REVIEW` | `FRAUD_ALERT` | `DELINQUENCY` | `CUSTOMER_REQUEST` | `COMPLIANCE` | `ADMIN_ACTION`
+
+    **Roles:** `credit_account:update` (Admin / Super Admin only)
+
+    **Response:** Varies by command — returns old and new values for the modified field.
     """
     # 1. Strict Validation: Ensure ONLY the field matching the command is present
     fields = {

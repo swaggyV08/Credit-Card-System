@@ -5,7 +5,7 @@ from pydantic import ConfigDict
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://postgres:Rasenshuriken%401@localhost:5432/credit_card_db"
 
-    SECRET_KEY: str = "supersecretkey"
+    SECRET_KEY: str = "zbanque_super_secure_production_grade_secret_key_2024_v1"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 

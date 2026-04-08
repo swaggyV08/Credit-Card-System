@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.core.rbac import require, AuthenticatedPrincipal
 from app.schemas.base import envelope_success
+from app.schemas.responses import SettlementRunResponse
 
 from app.models.transactions.settlement import SettlementRun
 from app.schemas.transactions.transactions import CreateSettlementRequest, SettlementRunDetailSchema
@@ -16,7 +17,7 @@ from datetime import datetime, timezone, date as py_date
 
 router = APIRouter(tags=["Settlement"])
 
-@router.post("/settlements", status_code=201)
+@router.post("/settlements", status_code=201, response_model=SettlementRunResponse)
 def run_settlement(
     request: CreateSettlementRequest,
     db: Session = Depends(get_db),
@@ -24,15 +25,28 @@ def run_settlement(
 ):
     """
     Triggers the 8-step settlement logic for all cleared transactions.
-    
-    1. Cutoff verification
-    2. Network-specific batch grouping
-    3. Merchant balance allocation
-    4. Fee recovery (Waterfall)
-    5. Interest calculation
-    6. Tax computation
-    7. Ledger posting
-    8. Confirmation generation
+
+    **What it does:**
+    Runs the end-of-day settlement pipeline for a specific card network and date.
+    Validates no duplicate run exists, checks the settlement date is not in the future,
+    then executes the full 8-step process:
+    1. Cutoff verification  2. Network-specific batch grouping
+    3. Merchant balance allocation  4. Fee recovery (Waterfall)
+    5. Interest calculation  6. Tax computation
+    7. Ledger posting  8. Confirmation generation
+
+    **Request Body (`CreateSettlementRequest`):**
+    - `settlement_date`: Date (must not be in the future)
+    - `network` enum: `VISA` | `MASTERCARD` | `AMEX` | `RUPAY`
+    - `cutoff_datetime`: Timezone-aware datetime for the processing cutoff
+
+    **Validations:**
+    - Future date → `InvalidSettlementDateError`
+    - Duplicate run for same network + date → `SettlementAlreadyRunError`
+
+    **Roles:** `settlement:run` (Admin / Super Admin only)
+
+    **Response:** `{ settlement_run_id, cards_settled, total_amount, failed_count }`
     """
     # 1. Validation: Future Date check
     if request.settlement_date > py_date.today():

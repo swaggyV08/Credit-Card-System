@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from app.api.deps import get_db
 from app.core.rbac import require, AuthenticatedPrincipal
 from app.schemas.base import envelope_success
+from app.schemas.responses import CardIssueResponse, CardLifecycleResponse
 from app.schemas.card_management import (
     CCMCardIssueRequest, CCMCardActivationRequest,
     CCMCardBlockRequest, CCMCardUnblockRequest,
@@ -19,7 +20,7 @@ from app.models.card_management import CCMCreditCard
 from app.core.roles import Role
 
 router = APIRouter(prefix="/cards", tags=["Cards"])
-issue_router = APIRouter(prefix="/card_product", tags=["Card Issuance"])
+issue_router = APIRouter(prefix="/credit-account", tags=["Card Issuance"])
 
 def _assert_card_ownership(db: Session, card_id: uuid.UUID, principal: AuthenticatedPrincipal):
     if principal.role in [Role.ADMIN, Role.SUPERADMIN]:
@@ -28,14 +29,29 @@ def _assert_card_ownership(db: Session, card_id: uuid.UUID, principal: Authentic
     if not card or str(card.user_id) != principal.user_id:
          raise AppError(code="ACCESS_DENIED", message="Access Denied: You do not own this card.", http_status=403)
 
-@issue_router.post("/{credit_account_id}/card", status_code=status.HTTP_201_CREATED)
+@issue_router.post("/{credit_account_id}/card", status_code=status.HTTP_201_CREATED, response_model=CardIssueResponse)
 def issue_card_endpoint(
     credit_account_id: uuid.UUID,
     request: CCMCardIssueRequest,
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require("card:issue"))
 ):
-    """Issues a new credit card for the specified credit account."""
+    """
+    Issues a new credit card for the specified credit account.
+
+    **What it does:**
+    Creates a new physical or virtual credit card linked to an existing credit account.
+    Generates a masked PAN, CVV hash, expiry date, and sets initial card status to `CREATED`.
+
+    **Request Body (`CCMCardIssueRequest`):**
+    - `card_network`: `VISA` | `MASTERCARD` | `RUPAY` | `AMEX`
+    - `card_variant`: `CLASSIC` | `GOLD` | `PLATINUM` | `SIGNATURE` | `INFINITE`
+    - `is_virtual`: Boolean flag for virtual card issuance
+
+    **Roles:** `card:issue` (Admin / Super Admin only)
+
+    **Response:** Issued card details including `card_id`, `pan_masked`, `card_status`, `expiry_date`.
+    """
     try:
         result = CardManagementService.issue_card(db, credit_account_id, request)
         return envelope_success(result.model_dump(mode='json') if hasattr(result, 'model_dump') else result)
@@ -52,7 +68,26 @@ async def activate_card_dispatcher(
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require("card:activate"))
 ):
-    """Handles card activation in two stages ('generate' and 'activate')"""
+    """
+    Handles card activation in two stages.
+
+    **What it does:**
+    Stage 1 (`command=generate`): Generates an OTP for activation verification.
+    Stage 2 (`command=activate`): Validates the OTP, sets the user's PIN, and
+    transitions card status from `INACTIVE` → `ACTIVE`.
+
+    **Query Parameter `command`:**
+    - `generate` — Sends activation OTP to the registered mobile number.
+    - `activate` — Completes activation with PIN and OTP verification.
+
+    **Request Body (`CCMCardActivationRequest`):**
+    - `pin`: 4-digit card PIN (required for `activate` stage)
+    - `activation_id`: UUID returned from the `generate` stage
+
+    **Roles:** `card:activate` (User / Admin) — Ownership enforced for Users.
+
+    **Response:** `{ card_id, card_status, activated_at }` on success.
+    """
     try:
         _assert_card_ownership(db, card_id, principal)
         if command == CCMCommand.GENERATE.value:
@@ -84,7 +119,29 @@ async def card_lifecycle_dispatcher(
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require("card:lifecycle"))
 ):
-    """Dispatches card lifecycle actions via the `command` query parameter."""
+    """
+    Dispatches card lifecycle actions via the `command` query parameter.
+
+    **What it does:**
+    A unified state machine for all post-activation card operations. Each command
+    transitions the card through its lifecycle and enforces ownership for non-admin callers.
+
+    **Query Parameter `command` (enum `CCMCommand`):**
+    - `block` — Temporarily blocks the card. Body: `CCMCardBlockRequest` with `block_reason`.
+      - `block_reason` enum: `SUSPICIOUS_ACTIVITY` | `GEO_MISMATCH` | `VELOCITY_CHECK` |
+        `USER_REQUEST` | `FRAUD` | `LOST` | `STOLEN` | `TEMPORARY_BLOCK`
+    - `unblock_otp` — Initiates unblock by sending OTP. Body: `CCMCardUnblockRequest`.
+    - `unblock` — Confirms unblock with OTP. Body: `CCMCardUnblockRequest`.
+    - `replace` — Reissues the card (damaged/lost/upgrade). Body: `CCMCardReplaceRequest`.
+      - `reissue_reason` enum: `DAMAGED` | `LOST` | `UPGRADE` | `EXPIRY`
+    - `terminate` — Permanently closes the card. Body: `CCMCardTerminateRequest`.
+    - `renew` — Renews an expiring card. Body: `CCMCardRenewRequest`.
+    - `freeze` / `unfreeze` — Temporary soft-lock toggle (no body required).
+
+    **Roles:** `card:lifecycle` (User / Admin) — Ownership enforced for Users.
+
+    **Response:** Updated card details including new `card_status`.
+    """
     command = command.lower().strip()
     raw_data = data.model_dump() if hasattr(data, "model_dump") else data
     
@@ -132,7 +189,19 @@ def get_card_details(
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require("card:read"))
 ):
-    """Retrieves full card details including status, PAN, expiry, linked credit account, and feature flags."""
+    """
+    Retrieves full card details including status, PAN, expiry, and feature flags.
+
+    **What it does:**
+    Returns the complete card record with linked credit account information.
+    Includes all feature toggles (contactless, international, online, ATM, domestic)
+    and spending limits.
+
+    **Roles:** `card:read` (User / Admin) — Ownership enforced for Users.
+
+    **Response:** `CCMCreditCardResponse` with `{ id, card_number, card_network, card_variant,
+    status, is_virtual, is_contactless_enabled, is_international_enabled, daily_spend_limit, ... }`
+    """
     _assert_card_ownership(db, card_id, principal)
     from app.models.card_management import CCMCreditCard
     from sqlalchemy.orm import joinedload

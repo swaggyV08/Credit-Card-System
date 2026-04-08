@@ -7,6 +7,7 @@ from typing import List, Literal, Optional
 from app.api.deps import get_db
 from app.core.rbac import require, AuthenticatedPrincipal
 from app.schemas.base import envelope_success
+from app.schemas.responses import ApplicationSubmitResponse, ApplicationListResponse
 from app.core.app_error import AppError
 from app.services.cif_service import CIFService
 from app.models.auth import User
@@ -39,6 +40,8 @@ router = APIRouter(prefix="/applications", tags=["Credit Card Applications"])
 @router.post(
     "/",
     summary="Submit New Application",
+    status_code=201,
+    response_model=ApplicationSubmitResponse,
     dependencies=[Depends(require("application:submit"))]
 )
 def submit_application(

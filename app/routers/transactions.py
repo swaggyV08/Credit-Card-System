@@ -13,10 +13,12 @@ from uuid import UUID
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from sqlalchemy.orm import Session
+from decimal import Decimal
 
 from app.api.deps import get_db
 from app.core.rbac import require, AuthenticatedPrincipal
 from app.schemas.base import envelope_success
+from app.schemas.responses import TransactionCreateResponse, TransactionListResponse
 
 from app.models.transactions.transactions import Transaction
 from app.schemas.transactions.transactions import (
@@ -32,7 +34,7 @@ from app.core.exceptions import (
 router = APIRouter(tags=["Transactions"])
 
 
-@router.post("/cards/{card_id}/transactions", status_code=201)
+@router.post("/cards/{card_id}/transactions", status_code=201, response_model=TransactionCreateResponse)
 def create_transaction(
     card_id: UUID,
     request: CreateTransactionRequest,
@@ -43,9 +45,25 @@ def create_transaction(
     """
     Initiates a transaction via authorization pipeline.
 
-    Enhanced with:
-    - Idempotency key support (via IdempotencyKey model)
-    - Fraud detection (velocity gate, amount spike, unusual hour)
+    **What it does:**
+    Simulates a card swipe or online purchase. Runs the full authorization pipeline:
+    idempotency dedup → card validation → velocity check → fraud scoring → authorization.
+    Creates a credit hold against the card's available credit.
+
+    **Headers:**
+    - `Idempotency-Key` (required): UUID to prevent duplicate charges.
+
+    **Request Body (`CreateTransactionRequest`):**
+    - `transaction_type` enum: `PURCHASE` | `CASH_ADVANCE` | `BALANCE_TRANSFER` | `QUASI_CASH` | `REFUND` | `PRE_AUTH` | `FEE` | `INTEREST_CHARGE` | `PAYMENT` | `FEE_WAIVER`
+    - `pos_entry_mode` enum (optional): `CHIP` | `SWIPE` | `NFC` | `MANUAL`
+    - `amount`: Decimal > 0 (2 decimal places)
+    - `merchant_category_code`: 4-digit MCC string
+    - `merchant_country`: ISO 3166-1 alpha-2 code
+    - `card_not_present`: Boolean (if true, `cvv2` is required)
+
+    **Roles:** `transaction:initiate` (User / Admin)
+
+    **Response:** `{ transaction_id, auth_code, status, amount, available_credit, hold_id, hold_expiry }`
     """
     # ── Step 0: Idempotency check ──
     if not idempotency_key:
@@ -103,7 +121,7 @@ def create_transaction(
     return response
 
 
-@router.get("/cards/{card_id}/transactions")
+@router.get("/cards/{card_id}/transactions", response_model=TransactionListResponse)
 def list_transactions(
     card_id: UUID,
     status: str | None = None,
@@ -119,7 +137,27 @@ def list_transactions(
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require("transaction:read")),
 ):
-    """Lists transactions for a card with filters and pagination."""
+    """
+    Lists transactions for a card with filters and pagination.
+
+    **What it does:**
+    Returns a paginated, filterable list of all transactions on the card.
+    Optionally includes active credit holds via `?include=holds`.
+
+    **Query Parameters:**
+    - `status`: Filter by transaction status (e.g., `AUTHORIZED`, `SETTLED`, `REVERSED`)
+    - `transaction_type`: Filter by type (e.g., `PURCHASE`, `CASH_ADVANCE`)
+    - `date_from` / `date_to`: Date range filter
+    - `merchant_name`: Partial match filter
+    - `include=holds`: Includes active `CreditHold` objects and aggregated hold totals
+    - `sort_by` / `sort_order`: Sorting controls
+
+    **Transaction Status enum:** `PENDING_AUTHORIZATION` | `AUTHORIZED` | `CLEARED` | `SETTLED` | `REVERSED` | `VOIDED` | `DECLINED` | `DISPUTED` | `CHARGED_BACK` | `FORCE_POST` | `BLOCKED`
+
+    **Roles:** `transaction:read` (User / Admin)
+
+    **Response:** `{ data: [TransactionSummary], total_hold_amount, available_credit, meta: { total, page, page_size } }`
+    """
     query = db.query(Transaction).filter(
         Transaction.card_id == card_id, Transaction.is_deleted == False,
     )
@@ -176,7 +214,17 @@ def get_transaction(
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require("transaction:read")),
 ):
-    """Gets detailed transaction view (including embedded holds and disputes)."""
+    """
+    Gets detailed transaction view including embedded holds and disputes.
+
+    **What it does:**
+    Returns the full transaction record with all merchant details, risk scoring,
+    idempotency key, metadata, and any linked dispute summary.
+
+    **Roles:** `transaction:read` (User / Admin)
+
+    **Response:** `TransactionDetailSchema` with merchant details, risk tier, linked dispute, and holds.
+    """
     txn = db.query(Transaction).filter(Transaction.id == txn_id).first()
     if not txn:
         raise HTTPException(status_code=404, detail="Transaction not found")
@@ -184,7 +232,7 @@ def get_transaction(
     return envelope_success(data)
 
 
-@router.patch("/transactions/{txn_id}")
+@router.put("/transactions/{txn_id}")
 def transition_transaction(
     txn_id: UUID,
     command: str = Query(..., description="reverse | void | flag | unflag | capture"),
@@ -192,7 +240,29 @@ def transition_transaction(
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require("transaction:state")),
 ):
-    """State-transition functionality for single transaction."""
+    """
+    State-transition functionality for a single transaction.
+
+    **What it does:**
+    Unified command dispatcher that moves a transaction through its lifecycle.
+    Each command triggers different business logic (credit restoration, fraud flagging, etc.).
+
+    **Query Parameter `command`:**
+    - `reverse` — Reverses the transaction and restores credit. Requires `reason`.
+    - `void` — Voids an authorized-but-unsettled transaction. Requires `reason`.
+    - `flag` — Marks the transaction for internal fraud review. Requires `flag_reason`.
+    - `unflag` — Clears a fraud flag. Requires `unflag_reason`.
+    - `capture` — Captures a pre-auth transaction for the specified `amount`.
+    - `release_hold` — Manually releases an active credit hold. Requires `reason`.
+
+    **Request Body (`TransactionCommandRequest`):**
+    - `amount`: Decimal (for `capture` command)
+    - `reason` / `flag_reason` / `unflag_reason`: String explanations
+
+    **Roles:** `transaction:state` (Admin / Super Admin only)
+
+    **Response:** Updated `TransactionDetailSchema`.
+    """
     txn = db.query(Transaction).filter(Transaction.id == txn_id).first()
     if not txn:
         raise HTTPException(status_code=404, detail="Transaction not found")

@@ -32,7 +32,7 @@ def test_cif_write_requires_user_role():
         json={"Personal_details": {
             "nationality": "India",
             "country_of_residence": "India",
-            "date_of_birth": {"year": 1990, "month": 1, "day": 1},
+            "date_of_birth": "1990-01-01",
             "gender": "MALE",
             "marital_status": "SINGLE"
         }},
@@ -60,7 +60,7 @@ def test_cif_write_user_role_success():
         json={"Personal_details": {
             "nationality": "India",
             "country_of_residence": "India",
-            "date_of_birth": {"year": 1990, "month": 1, "day": 1},
+            "date_of_birth": "1990-01-01",
             "gender": "MALE",
             "marital_status": "SINGLE"
         }},

@@ -1,5 +1,5 @@
 """Admin schemas for the ZBANQUe Credit Card System."""
-from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator, ConfigDict
 from uuid import UUID
 from datetime import datetime
 from typing import Optional
@@ -7,17 +7,18 @@ from typing import Optional
 from app.core.roles import Role
 
 
+import re
+
 class AdminFullName(BaseModel):
     """Structured name input for admin creation."""
-    first_name: str = Field(..., min_length=2, description="Admin's first name")
-    last_name: str = Field(..., min_length=2, description="Admin's last name")
+    first_name: str = Field(..., min_length=1, max_length=50, description="Admin's first name")
+    last_name: str = Field(..., min_length=1, max_length=50, description="Admin's last name")
 
     @field_validator("first_name", "last_name")
     @classmethod
-    def validate_name_format(cls, v):
-        """Ensure names contain only letters and spaces."""
-        if not v.replace(" ", "").isalpha():
-            raise ValueError("Name should only contain letters and spaces")
+    def letters_only(cls, v):
+        if not v.isalpha():
+            raise ValueError("must contain letters only")
         return v
 
 
@@ -25,6 +26,29 @@ class AdminContact(BaseModel):
     """Structured contact input for admin creation."""
     country_code: str = Field(..., json_schema_extra={"example": "+91"})
     phone_number: str = Field(..., json_schema_extra={"example": "9876543210"})
+
+    @model_validator(mode='after')
+    def validate_phone(self) -> 'AdminContact':
+        allowed = {
+            "+91": ("India", 10),
+            "+1": ("USA", 10),
+            "+44": ("UK", 10),
+            "+61": ("Australia", 9),
+            "+971": ("UAE", 9),
+            "+7": ("Russia", 10),
+        }
+        
+        if self.country_code not in allowed:
+            raise ValueError("Country not supported. Allowed: India, USA, UK, Australia, UAE, Russia.")
+            
+        country_name, required_len = allowed[self.country_code]
+        if not self.phone_number.isdigit():
+            raise ValueError(f"Phone number for {self.country_code} ({country_name}) must be digits only.")
+            
+        if len(self.phone_number) != required_len:
+            raise ValueError(f"Phone number for {self.country_code} ({country_name}) must be exactly {required_len} digits. You provided {len(self.phone_number)}.")
+            
+        return self
 
 
 class AdminCreate(BaseModel):
@@ -34,22 +58,41 @@ class AdminCreate(BaseModel):
     department has been removed from the schema.
     """
     email: EmailStr = Field(..., description="Must be lowercase only")
-    password: str = Field(..., min_length=12, description="Minimum 12 characters")
+    password: str = Field(..., description="Minimum 12 characters")
     confirm_password: str = Field(..., description="Must match password exactly")
     full_name: AdminFullName
     contact: AdminContact
     role: Role = Role.MANAGER
 
-    @field_validator("email", mode="before")
+    @field_validator("email")
     @classmethod
-    def validate_lowercase_email(cls, v):
-        """Reject mixed-case or uppercase emails. Only lowercase accepted."""
-        if isinstance(v, str):
-            stripped = v.strip()
-            if stripped != stripped.lower():
-                raise ValueError("Email must be in lowercase only")
-            return stripped
+    def email_rfc(cls, v):
+        if any(c.isupper() for c in v):
+            raise ValueError("Email must be lowercase only.")
+        if not re.match(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$", v):
+            raise ValueError("value is not a valid email address: The email address is not valid. It must have exactly one @-sign.")
         return v
+
+    @model_validator(mode='after')
+    def passwords_match(self) -> 'AdminCreate':
+        p = self.password
+        if len(p) < 12:
+            raise ValueError("Password must be at least 12 characters.")
+        if len(p) > 20:
+            raise ValueError("Password cannot exceed 20 characters.")
+        if not re.search(r'[A-Z]', p):
+            raise ValueError("Password must contain at least 1 uppercase letter.")
+        if not re.search(r'[a-z]', p):
+            raise ValueError("Password must contain at least 1 lowercase letter.")
+        if not re.search(r'[0-9]', p):
+            raise ValueError("Password must contain at least 1 digit.")
+        if not re.search(r'[!@#\$%\^&\*\(\)_\+\-\=\{\}\[\]\\\|:;"\'<>,.\?/]', p):
+            raise ValueError("Password must contain at least 1 special character.")
+            
+        if self.password != self.confirm_password:
+            raise ValueError("Passwords do not match.")
+            
+        return self
 
     @field_validator("role")
     @classmethod

@@ -12,6 +12,8 @@ if os.name == 'nt':
         pass
 
 from contextlib import asynccontextmanager
+from app.schemas.responses import HealthCheckResponse
+from app.schemas.base import envelope_success
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request, HTTPException
@@ -25,8 +27,9 @@ from app.api import customer, application
 from app.admin.api import credit_product
 from app.routers import (
     card_products, admin_users, credit_accounts, cards,
-    transactions, disputes, settlement,
-    statements, payments, controls, billing,
+    transactions, statements,
+    payments, billing,
+    jobs, fees,
     credit_products as user_credit_products
 )
 from app.core.exceptions import BankGradeException
@@ -64,13 +67,14 @@ async def lifespan(app: FastAPI):
     from app.db.seeder import seed_super_admin
     from app.db.session import SessionLocal
     
-    # Run seeder
-    try:
-        db = SessionLocal()
-        seed_super_admin(db)
-        db.close()
-    except Exception as e:
-        print(f"[WARN] Seeder failed: {e}")
+    # Run seeder (skip if testing)
+    if os.getenv("TESTING") != "true":
+        try:
+            db = SessionLocal()
+            seed_super_admin(db)
+            db.close()
+        except Exception as e:
+            print(f"[WARN] Seeder failed: {e}")
         
     try:
         await start_billing_scheduler()
@@ -106,59 +110,77 @@ logger = logging.getLogger("zbanque_api")
 
 from app.schemas.base import envelope_error, ErrorDetail
 
+from app.core.app_error import AppError, RefactoredException
+from app.schemas.responses import ErrorResponse
+from datetime import datetime, timezone
+
+def _format_error(code: str, message: str, status_code: int, request: Request) -> dict:
+    return {
+        "error_code": code,
+        "message": message,
+        "status_code": status_code,
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "path": request.url.path
+    }
+
+@app.exception_handler(RefactoredException)
+async def refactored_error_handler(request: Request, exc: RefactoredException):
+    logger.error(f"RefactoredException: {exc.error_code} - {exc.message}")
+    response = _format_error(exc.error_code, exc.message, exc.status_code, request)
+    return JSONResponse(status_code=exc.status_code, content=response)
+
 @app.exception_handler(AppError)
 async def app_error_handler(request: Request, exc: AppError):
     logger.error(f"AppError: {exc.code} - {exc.message}")
-    error = ErrorDetail(code=exc.code, message=exc.message)
-    return JSONResponse(status_code=exc.status_code, content=envelope_error([error], exc.status_code))
-
+    status = getattr(exc, "status_code", 400)
+    response = _format_error(exc.code, exc.message, status, request)
+    return JSONResponse(status_code=status, content=response)
 
 @app.exception_handler(BankGradeException)
 async def bank_grade_exception_handler(request: Request, exc: BankGradeException):
     logger.error(f"BankGradeException: {exc.code} - {exc.message}")
-    error = ErrorDetail(code=exc.code, message=exc.message)
-    return JSONResponse(status_code=exc.status_code, content=envelope_error([error], exc.status_code))
-
+    status = getattr(exc, "status_code", 400)
+    response = _format_error(exc.code, exc.message, status, request)
+    return JSONResponse(status_code=status, content=response)
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    errors = []
-    for error in exc.errors():
-        field = ".".join(str(loc) for loc in error["loc"] if loc != "body")
-        msg = error["msg"]
-        errors.append(ErrorDetail(code="VALIDATION_ERROR", message=msg, field=field))
-    logger.warning(f"Validation Error: {errors}")
-    return JSONResponse(status_code=422, content=envelope_error(errors, 422))
-
+    errors = exc.errors()
+    error = errors[0] if errors else {}
+    field = ".".join(str(loc) for loc in error.get("loc", []) if loc != "body")
+    msg = error.get("msg", "Validation error")
+    if msg.startswith("Value error, "):
+        msg = msg[len("Value error, "):]
+        
+    full_msg = f"{field}: {msg}" if field else msg
+    response = _format_error("VALIDATION_ERROR", full_msg, 422, request)
+    logger.warning(f"Validation Error: {response}")
+    return JSONResponse(status_code=422, content=response)
 
 @app.exception_handler(IdempotencyConflictError)
 async def idempotency_conflict_handler(request: Request, exc: IdempotencyConflictError):
     logger.error(f"Idempotency Conflict: {exc.message}")
-    error = ErrorDetail(code=exc.code, message=exc.message)
-    return JSONResponse(status_code=409, content=envelope_error([error], 409))
-
+    response = _format_error("DUPLICATE_IDEMPOTENCY_KEY", exc.message, 409, request)
+    return JSONResponse(status_code=409, content=response)
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    code = "HTTP_ERROR"
+    code = exc.status_code
     message = str(exc.detail)
     if isinstance(exc.detail, dict):
-        code = exc.detail.get("code", "HTTP_ERROR")
         message = exc.detail.get("message", str(exc.detail))
-    logger.warning(f"HTTPException [{exc.status_code}]: {message}")
-    error = ErrorDetail(code=code, message=message)
-    return JSONResponse(
-        status_code=exc.status_code,
-        content=envelope_error([error], exc.status_code),
-        headers=exc.headers
-    )
-
+    logger.warning(f"HTTPException [{code}]: {message}")
+    
+    # Map 404/403 directly if there isn't a specific code supplied
+    error_code = "NOT_FOUND" if code == 404 else "FORBIDDEN" if code == 403 else "HTTP_ERROR"
+    response = _format_error(error_code, message, code, request)
+    return JSONResponse(status_code=code, content=response, headers=exc.headers)
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
     logger.exception("Internal Server Error")
-    error = ErrorDetail(code="SERVER_ERROR", message="An unhandled internal error occurred.")
-    return JSONResponse(status_code=500, content=envelope_error([error], 500))
+    response = _format_error("INTERNAL_ERROR", "An unhandled internal error occurred.", 500, request)
+    return JSONResponse(status_code=500, content=response)
 
 
 app.include_router(new_auth.router)
@@ -179,12 +201,11 @@ app.include_router(cards.issue_router)
 
 # transaction processing routers
 app.include_router(transactions.router)
-app.include_router(disputes.router)
-app.include_router(settlement.router)
-app.include_router(statements.router)
 app.include_router(payments.router)
-app.include_router(controls.router)
 app.include_router(billing.router)
+app.include_router(statements.router)
+app.include_router(jobs.router)
+app.include_router(fees.router)
 
 # ── Scheduler is started in the lifespan context manager above ────────────
 
@@ -219,6 +240,10 @@ def _enhance_route_descriptions():
 
 _enhance_route_descriptions()
 
-@app.get("/")
+@app.get("/", response_model=HealthCheckResponse)
 def root():
-    return {"message": "ZBANQUe Credit Card System Running"}
+    return envelope_success({
+        "application": "ZBANQUe Credit Card System",
+        "version": "1.0.0",
+        "status": "running"
+    })

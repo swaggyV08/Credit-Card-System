@@ -11,8 +11,10 @@ from app.models.card_management import CCMCreditCard, CCMCreditAccount, CCMCardT
 from app.models.customer import OTPCode, OTPPurpose
 from app.models.enums import (
     CCMCardStatus, CCMAccountStatus, CardNetwork, CardVariant, CCMFraudBlockReason, 
-    ActorType, CCMCommand, CCMReissueReason, CCMReissueType
+    ActorType, CCMCommand, CCMReissueReason, CCMReissueType,
+    CardStatus, CardType
 )
+from app.admin.models.card_issuance import Card, CreditAccount
 from app.schemas.card_management import (
     CCMCardIssueRequest, CCMCardActivationRequest,
     CCMCardBlockRequest, CCMCardUnblockRequest,
@@ -75,14 +77,6 @@ class CardManagementService:
                 http_status=404
             )
 
-        # Validate request credit_account_id matches path
-        if request.credit_account_id != credit_account_id:
-            raise AppError(
-                code="INVALID_PAYLOAD",
-                message="credit_account_id in request body does not match the path parameter.",
-                http_status=400
-            )
-
         card_number = generate_card_number()
         cvv = generate_cvv()
         expiry_date = generate_expiry()
@@ -100,16 +94,38 @@ class CardManagementService:
             is_virtual=(request.card_type == CCMReissueType.VIRTUAL)
         )
         db.add(new_card)
+        db.flush() # Get card ID
+
+        # Mirror to Administrative Card table (Dual-Insert)
+        admin_account = db.query(CreditAccount).filter(CreditAccount.id == account.id).first()
+        if admin_account:
+            admin_card = Card(
+                id=new_card.id, # Keep IDs in sync
+                credit_account_id=admin_account.id,
+                card_product_id=admin_account.card_product_id,
+                card_type=CardType.PRIMARY,
+                pan_encrypted="---SYNC-ENCRYPTED---",
+                pan_masked=card_number[-4:].rjust(16, '*'),
+                expiry_date=expiry_date,
+                expiry_date_masked="**/**",
+                cvv_encrypted="---SYNC-ENCRYPTED---",
+                cvv_masked="***",
+                card_status=CardStatus.INACTIVE, # Core ISSUED matches Admin INACTIVE
+                issued_at=new_card.issued_at
+            )
+            db.add(admin_card)
+
         db.commit()
         db.refresh(new_card)
 
         last_4 = card_number[-4:]
         return {
             "message": "Card issued successfully",
-            "card_id": new_card.id,
-            "last_4_digits": f"**** {last_4}",
-            "expiry": expiry_date,
-            "status": "ISSUED",
+            "card_id": str(new_card.id),
+            "pan_masked": f"XXXX-XXXX-XXXX-{last_4}",
+            "card_status": "ISSUED",
+            "expiry_date": expiry_date,
+            "card_network": new_card.card_network.value if new_card.card_network else "VISA",
             "delivery": "In progress"
         }
 
@@ -139,10 +155,11 @@ class CardManagementService:
 
         return {
             "message": "Activation initiated",
-            "old_status": card.status,
-            "new_status": card.status,
-            "activation_id": activation_id,
-            "card_id": card_id
+            "old_status": card.status.value if hasattr(card.status, 'value') else str(card.status),
+            "new_status": card.status.value if hasattr(card.status, 'value') else str(card.status),
+            "activation_id": str(activation_id),
+            "card_id": str(card_id),
+            "card_status": card.status.value if hasattr(card.status, 'value') else str(card.status)
         }
 
     # -------------------------------------------------
@@ -185,19 +202,27 @@ class CardManagementService:
         card.status = CCMCardStatus.ACTIVE
         card.activated_at = datetime.now(timezone.utc)
         card.pin_hash = hash_pin(request.pin)
+        otp_record.is_used = True
+        
+        # Mirror to Admin Card
+        admin_card = db.query(Card).filter(Card.id == card.id).first()
+        if admin_card:
+            admin_card.card_status = CardStatus.ACTIVE
+            admin_card.activation_date = card.activated_at
+            admin_card.pin_hashed = card.pin_hash
         
         if card.credit_account:
             card.credit_account.status = CCMAccountStatus.ACTIVE
             
-        otp_record.is_used = True
         db.commit()
 
         return {
             "message": "Card Activated & PIN Set Successfully",
-            "old_status": old_status,
-            "new_status": card.status,
-            "activation_id": request.activation_id,
-            "card_id": card_id
+            "old_status": old_status.value if hasattr(old_status, 'value') else str(old_status),
+            "new_status": card.status.value if hasattr(card.status, 'value') else str(card.status),
+            "activation_id": str(request.activation_id),
+            "card_id": str(card_id),
+            "card_status": card.status.value if hasattr(card.status, 'value') else str(card.status)
         }
 
     # -------------------------------------------------
@@ -226,6 +251,11 @@ class CardManagementService:
         card.blocked_reason = request.reason
         card.blocked_by_actor = actor
         
+        # Mirror to Admin Card
+        admin_card = db.query(Card).filter(Card.id == card.id).first()
+        if admin_card:
+            admin_card.card_status = CardStatus.BLOCKED
+
         if card.credit_account:
             card.credit_account.status = CCMAccountStatus.FROZEN
             
@@ -233,8 +263,10 @@ class CardManagementService:
 
         return {
             "message": "Card Blocked",
-            "old_status": old_status,
-            "new_status": card.status
+            "old_status": old_status.value if hasattr(old_status, 'value') else str(old_status),
+            "new_status": card.status.value if hasattr(card.status, 'value') else str(card.status),
+            "card_id": str(card_id),
+            "card_status": card.status.value if hasattr(card.status, 'value') else str(card.status)
         }
 
     # -------------------------------------------------
@@ -259,14 +291,29 @@ class CardManagementService:
                 http_status=403
             )
 
-        # Generate a unique unblock_id as linkage
+        # Generate a unique unblock_id as linkage and persist it as a pre-verified intent
         unblock_id = uuid.uuid4()
+        
+        # Link to OTPCode table to persist the valid unblock session (marking as pre-verified)
+        new_otp = OTPCode(
+            user_id=card.user_id,
+            otp_hash="DUMMY", # No real OTP needed for this flow
+            purpose=OTPPurpose.LOGIN, # Dummy purpose
+            linkage_id=unblock_id,
+            is_verified=True, # Pre-verified as per requirement
+            is_used=False,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=15)
+        )
+        db.add(new_otp)
+        db.commit()
 
         return {
-            "message": "Unblock process initiated. Authenticate with OTP.",
-            "old_status": card.status,
-            "new_status": card.status,  # Status hasn't changed yet
-            "unblock_id": str(unblock_id)
+            "message": "Unblock process initiated. Use the provided unblock_id to confirm.",
+            "old_status": card.status.value if hasattr(card.status, 'value') else str(card.status),
+            "new_status": card.status.value if hasattr(card.status, 'value') else str(card.status),
+            "unblock_id": str(unblock_id),
+            "card_id": str(card_id),
+            "card_status": card.status.value if hasattr(card.status, 'value') else str(card.status)
         }
 
     # -------------------------------------------------
@@ -277,52 +324,59 @@ class CardManagementService:
         card = _get_card_or_404(db, card_id)
 
         if card.status not in [CCMCardStatus.BLOCKED_USER, CCMCardStatus.BLOCKED_TEMP, CCMCardStatus.BLOCKED_FRAUD]:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Card is not blocked. Current status: {card.status.value}."
+            raise AppError(
+                code="INVALID_STATUS",
+                message=f"Card is not blocked. Current status: {card.status.value}.",
+                http_status=400
             )
 
         # Admin-block restriction
         if card.status == CCMCardStatus.BLOCKED_FRAUD and actor == ActorType.USER:
-            raise HTTPException(
-                status_code=403,
-                detail="This card was blocked by an administrator for security reasons. "
-                       "Only an admin can unblock this card. Please contact customer support."
+            raise AppError(
+                code="INSUFFICIENT_PERMISSIONS",
+                message="This card was blocked by an administrator for security reasons. Only an admin can unblock this card.",
+                http_status=403
             )
 
         if not request.unblock_id:
-            raise HTTPException(
-                status_code=400,
-                detail="unblock_id is required."
+            raise AppError(
+                code="MISSING_FIELD",
+                message="unblock_id is required.",
+                http_status=400
             )
 
         try:
             unblock_uuid = uuid.UUID(request.unblock_id)
         except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail="unblock_id must be a valid UUID."
+            raise AppError(
+                code="INVALID_FORMAT",
+                message="unblock_id must be a valid UUID.",
+                http_status=400
             )
 
-        # Check the most recent OTP was verified for this unblock_uuid
-        # Cross-verifying strictly by linkage_id to handle cases where 
-        # the client used a different purpose (e.g. default "LOGIN" from Swagger)
+        # Check for a valid initiation record for this unblock_uuid
         otp_record = db.query(OTPCode).filter(
             OTPCode.linkage_id == unblock_uuid,
             OTPCode.is_used == False
         ).order_by(OTPCode.created_at.desc()).first()
 
-        if not otp_record or not getattr(otp_record, 'is_verified', False):
-            raise HTTPException(
-                status_code=400,
-                detail="OTP verification required before unblocking. "
-                       "Please use the unblock_otp command first to initiate the process and verify OTP."
+        if not otp_record:
+            raise AppError(
+                code="INVALID_SESSION",
+                message="No unblock session found for this unblock_id. Please use the unblock_ini command first.",
+                http_status=400
             )
 
         old_status = card.status
         card.status = CCMCardStatus.ACTIVE
         card.blocked_reason = None
         card.blocked_by_actor = None
+        
+        # Mirror to Admin Card
+        admin_card = db.query(Card).filter(Card.id == card.id).first()
+        if admin_card:
+            admin_card.card_status = CardStatus.ACTIVE
+
         otp_record.is_used = True
         
         if card.credit_account:
@@ -332,8 +386,10 @@ class CardManagementService:
 
         return {
             "message": "Card Active Again",
-            "old_status": old_status,
-            "new_status": card.status
+            "old_status": old_status.value if hasattr(old_status, 'value') else str(old_status),
+            "new_status": card.status.value if hasattr(card.status, 'value') else str(card.status),
+            "card_id": str(card_id),
+            "card_status": card.status.value if hasattr(card.status, 'value') else str(card.status)
         }
 
     # -------------------------------------------------
@@ -344,9 +400,10 @@ class CardManagementService:
         card = _get_card_or_404(db, card_id)
 
         if card.status in [CCMCardStatus.TERMINATED, CCMCardStatus.REPLACED]:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Card cannot be replaced. Current status: {card.status.value}."
+            raise AppError(
+                code="INVALID_STATUS",
+                message=f"Card cannot be replaced. Current status: {card.status.value}.",
+                http_status=400
             )
 
         old_card_id = card.id
@@ -369,16 +426,43 @@ class CardManagementService:
             is_virtual=(request.reissue_type == CCMReissueType.VIRTUAL)
         )
         db.add(new_card)
-        old_status = card.status
+        db.flush() # Get ID
+
+        # Mirror the retired card
+        old_card_status = card.status
         card.status = CCMCardStatus.REPLACED
+        admin_card_old = db.query(Card).filter(Card.id == card.id).first()
+        if admin_card_old:
+            admin_card_old.card_status = CardStatus.EXPIRED
+
+        # Mirror the new card (Dual-Insert)
+        admin_account = db.query(CreditAccount).filter(CreditAccount.id == account.id).first()
+        if admin_account:
+            admin_card_new = Card(
+                id=new_card.id,
+                credit_account_id=admin_account.id,
+                card_product_id=admin_account.card_product_id,
+                card_type=CardType.PRIMARY,
+                pan_encrypted="---SYNC-ENCRYPTED---",
+                pan_masked=new_card_number[-4:].rjust(16, '*'),
+                expiry_date=new_expiry,
+                expiry_date_masked="**/**",
+                cvv_encrypted="---SYNC-ENCRYPTED---",
+                cvv_masked="***",
+                card_status=CardStatus.INACTIVE,
+                issued_at=new_card.issued_at
+            )
+            db.add(admin_card_new)
+
         db.commit()
         db.refresh(new_card)
 
         return {
             "message": "Replacement Card Ordered",
-            "old_status": old_status,
-            "new_status": card.status,
-            "card_id": str(new_card.id)
+            "old_status": old_status.value if hasattr(old_status, 'value') else str(old_status),
+            "new_status": card.status.value if hasattr(card.status, 'value') else str(card.status),
+            "card_id": str(new_card.id),
+            "card_status": card.status.value if hasattr(card.status, 'value') else str(card.status)
         }
 
     # -------------------------------------------------
@@ -389,9 +473,10 @@ class CardManagementService:
         card = _get_card_or_404(db, card_id)
 
         if card.status == CCMCardStatus.TERMINATED:
-            raise HTTPException(
-                status_code=400,
-                detail="Card is already terminated."
+            raise AppError(
+                code="ALREADY_TERMINATED",
+                message="Card is already terminated.",
+                http_status=400
             )
 
         # Check outstanding balance
@@ -400,15 +485,20 @@ class CardManagementService:
             outstanding = card.credit_account.outstanding_balance or Decimal("0")
 
         if outstanding > 0:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot terminate card with outstanding balance: ₹{outstanding}. "
-                       "Please clear the balance first."
+            raise AppError(
+                code="OUTSTANDING_BALANCE",
+                message=f"Cannot terminate card with outstanding balance: ₹{outstanding}.",
+                http_status=400
             )
 
         old_status = card.status
         card.status = CCMCardStatus.TERMINATED
         
+        # Mirror to Admin Card
+        admin_card = db.query(Card).filter(Card.id == card.id).first()
+        if admin_card:
+            admin_card.card_status = CardStatus.BLOCKED # Using BLOCKED as Terminal state proxy
+
         if card.credit_account:
             card.credit_account.status = CCMAccountStatus.CLOSED
             
@@ -416,8 +506,10 @@ class CardManagementService:
 
         return {
             "message": "Card Closed Successfully",
-            "old_status": old_status,
-            "new_status": card.status
+            "old_status": old_status.value if hasattr(old_status, 'value') else str(old_status),
+            "new_status": card.status.value if hasattr(card.status, 'value') else str(card.status),
+            "card_id": str(card_id),
+            "card_status": card.status.value if hasattr(card.status, 'value') else str(card.status)
         }
 
     # -------------------------------------------------
@@ -428,9 +520,10 @@ class CardManagementService:
         card = _get_card_or_404(db, card_id)
 
         if card.status == CCMCardStatus.TERMINATED:
-            raise HTTPException(
-                status_code=400,
-                detail="Terminated cards cannot be renewed. Please apply for a new card."
+            raise AppError(
+                code="INVALID_STATUS",
+                message="Terminated cards cannot be renewed. Please apply for a new card.",
+                http_status=400
             )
 
         # Create a replace request from the renew request
@@ -454,12 +547,19 @@ class CardManagementService:
         
         old_status = card.status
         card.status = CCMCardStatus.BLOCKED_TEMP
+        
+        # Mirror to Admin Card
+        admin_card = db.query(Card).filter(Card.id == card.id).first()
+        if admin_card:
+            admin_card.card_status = CardStatus.BLOCKED
+
         db.commit()
         return {
             "message": "Card Frozen Successfully",
-            "old_status": old_status,
-            "new_status": card.status,
-            "card_id": str(card_id)
+            "old_status": old_status.value if hasattr(old_status, 'value') else str(old_status),
+            "new_status": card.status.value if hasattr(card.status, 'value') else str(card.status),
+            "card_id": str(card_id),
+            "card_status": card.status.value if hasattr(card.status, 'value') else str(card.status)
         }
 
     # -------------------------------------------------
@@ -473,12 +573,19 @@ class CardManagementService:
         
         old_status = card.status
         card.status = CCMCardStatus.ACTIVE
+        
+        # Mirror to Admin Card
+        admin_card = db.query(Card).filter(Card.id == card.id).first()
+        if admin_card:
+            admin_card.card_status = CardStatus.ACTIVE
+
         db.commit()
         return {
             "message": "Card Unfrozen Successfully",
-            "old_status": old_status,
-            "new_status": card.status,
-            "card_id": str(card_id)
+            "old_status": old_status.value if hasattr(old_status, 'value') else str(old_status),
+            "new_status": card.status.value if hasattr(card.status, 'value') else str(card.status),
+            "card_id": str(card_id),
+            "card_status": card.status.value if hasattr(card.status, 'value') else str(card.status)
         }
 
     # -------------------------------------------------

@@ -6,8 +6,8 @@ from typing import List, Literal, Optional
 
 from app.api.deps import get_db
 from app.core.rbac import require, AuthenticatedPrincipal
-from app.schemas.base import envelope_success
-from app.schemas.responses import ApplicationSubmitResponse, ApplicationListResponse
+from app.schemas.base import envelope_success, build_pagination
+from app.schemas.responses import ApplicationSubmitResponse, ApplicationListResponse, ProcessApplicationResponse
 from app.core.app_error import AppError
 from app.services.cif_service import CIFService
 from app.models.auth import User
@@ -28,10 +28,8 @@ from app.admin.schemas.card_issuance import (
 )
 from app.admin.models.credit_product import CreditProductInformation
 from app.admin.services.issuance_svc import CardIssuanceService
+from app.schemas.responses import ApplicationSubmitResponse
 from pydantic import BaseModel
-
-class ApplicationSubmitResponse(BaseModel):
-    application_id: UUID
 
 router = APIRouter(prefix="/applications", tags=["Credit Card Applications"])
 
@@ -92,7 +90,7 @@ def submit_application(
     existing_app = db.query(CreditCardApplication).filter(
         CreditCardApplication.user_id == user.id,
         CreditCardApplication.card_product_id == card_product.id,
-        CreditCardApplication.application_status.in_([ApplicationStatus.SUBMITTED, ApplicationStatus.IN_REVIEW, ApplicationStatus.KYC_PENDING])
+        CreditCardApplication.application_status.in_([ApplicationStatus.SUBMITTED, ApplicationStatus.IN_REVIEW])
     ).first()
     
     if existing_app:
@@ -201,6 +199,7 @@ def submit_application(
 @router.get(
     "/",
     summary="Get Applications",
+    response_model=ApplicationListResponse,
     dependencies=[Depends(require("application:read"))]
 )
 def get_applications(
@@ -248,7 +247,10 @@ def get_applications(
             payload = CreditCardApplicationResponse.model_validate(app_record)
             results.append(payload.model_dump(mode='json'))
         
-        return envelope_success(results)
+        return envelope_success({
+            "items": results,
+            "pagination": build_pagination(len(results), 1, len(results) or 20)
+        })
 
     elif command == "all":
         query = db.query(CreditCardApplication)
@@ -265,29 +267,96 @@ def get_applications(
         items = [CreditCardApplicationSummary.model_validate(app).model_dump(mode='json') for app in apps]
         return envelope_success({
             "items": items,
-            "total": total,
-            "page": page,
-            "page_size": page_size
+            "pagination": build_pagination(total, page, page_size)
         })
 
 
 @router.post(
     "/{user_id}",
+    response_model=ProcessApplicationResponse,
+    response_model_exclude_none=True,
     summary="Process Application (Evaluate/Configure)",
+    description="""
+**Unified endpoint to evaluate or configure a credit card application.**
+
+### Commands
+
+#### `command=evaluate`
+- Runs the automated credit assessment engines (Bureau, Fraud, Risk) against the application.
+- Returns the evaluation result: `APPROVED` or `REJECTED`.
+- **Does NOT accept a request body.** Send an empty body or `{}`.
+
+#### `command=configure`
+- The admin provides a configuration body with `application_status` (`Approve` or `Reject`).
+- **If `Approve`**: creates a credit account with product-default limits and billing cycle.
+- **If `Reject`**: manually rejects the application.
+- This is the mandatory admin decision step.
+
+### Request Body (for `command=configure` only)
+```json
+{
+  "application_status": "Approve"
+}
+```
+
+**Enums for `application_status`:** `Approve` | `Reject`
+
+### Example Success Response (command=configure, Approve)
+```json
+{
+  "status": "success",
+  "data": {
+    "credit_account_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "readable_id": "ACC-000001",
+    "user_id": "ZNBNQ000001",
+    "credit_limit": "100000.000",
+    "available_limit": "100000.000",
+    "cash_advance_limit": "0.000",
+    "outstanding_amount": "0.000",
+    "account_status": "ACTIVE",
+    "billing_cycle_id": "CYCLE_15",
+    "opened_at": "2026-04-08T10:30:00+00:00"
+  },
+  "meta": {
+    "request_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "timestamp": "2026-04-08T10:30:00.000000+00:00",
+    "api_version": "1.0.0"
+  },
+  "errors": []
+}
+```
+
+### Example Success Response (command=configure, Reject)
+```json
+{
+  "status": "success",
+  "data": {
+    "message": "Application manually rejected by admin",
+    "application_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "application_status": "REJECTED"
+  },
+  "meta": { ... },
+  "errors": []
+}
+```
+
+**Roles:** `application:evaluate`, `application:configure` (Admin / Manager / SuperAdmin)
+""",
     dependencies=[Depends(require("application:evaluate")), Depends(require("application:configure"))]
 )
 async def process_application(
     user_id: str,
     command: Literal["evaluate", "configure"] = Query(..., description="Action to perform on user's application"),
     application_id: Optional[UUID] = Query(None, description="Required for evaluate/configure commands"),
+    config_body: Optional[CreditAccountManualConfig] = None,
     request: Request = None,
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require("application:evaluate"))
 ):
     """
     Unified endpoint to evaluate or configure an application.
-    - evaluate: run engines against an application
-    - configure: configure account and limits
+    - evaluate: run engines against an application (no body)
+    - configure: admin override decision (requires body with application_status only)
     """
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -299,6 +368,12 @@ async def process_application(
         raise AppError(code="MISSING_APP_ID", message="application_id is required", http_status=422)
 
     if command == "evaluate":
+        if config_body is not None:
+            raise AppError(
+                code="NO_BODY_ACCEPTED",
+                message="command=evaluate does not accept a request body. Remove the request body and try again.",
+                http_status=422
+            )
         if request is not None:
             body = await request.body()
             if body and body.strip() not in (b"", b"null", b"{}"):
@@ -312,32 +387,35 @@ async def process_application(
         return envelope_success(result)
 
     elif command == "configure":
-        if request is None:
-            raise AppError(code="MISSING_BODY", message="Configuration body required", http_status=422)
-            
-        try:
-            body = await request.json()
-        except Exception:
-            raise AppError(code="INVALID_JSON", message="Invalid or empty JSON body provided for configuration", http_status=400)
-            
-        config = CreditAccountManualConfig(**body)
+        if config_body is None:
+            if request is not None:
+                try:
+                    body = await request.json()
+                    config_body = CreditAccountManualConfig(**body)
+                except Exception:
+                    raise AppError(code="MISSING_BODY", message="Configuration body required with application_status field", http_status=422)
+            else:
+                raise AppError(code="MISSING_BODY", message="Configuration body required", http_status=422)
         
-        account = CardIssuanceService.configure_and_create_account(db, application_id, config, UUID(principal.user_id))
-        payload = CreditAccountResponse.model_validate(account)
-        return envelope_success(payload.model_dump(mode='json'))
+        account = CardIssuanceService.configure_and_create_account(db, application_id, config_body, UUID(principal.user_id))
+        
+        if account is None:
+            return envelope_success({
+                "message": "Application manually rejected by admin",
+                "application_id": str(application_id),
+                "application_status": "REJECTED"
+            })
+            
+        return envelope_success({
+            "message": "credit application approved , card will be issued soon",
+            "application_id": str(application_id),
+            "credit_account_id": str(account.id),
+            "user_id": str(account.user_id),
+            "credit_limit": f"{account.credit_limit:.2f}",
+            "available_limit": f"{account.available_limit:.2f}",
+            "account_status": account.account_status.value if hasattr(account.account_status, "value") else str(account.account_status)
+        })
 
 
-@router.post(
-    "/{credit_account_id}/card",
-    summary="Issue Card",
-    dependencies=[Depends(require("application:issue_card"))]
-)
-def issue_card_for_account(
-    credit_account_id: UUID,
-    data: IssueCardRequest,
-    db: Session = Depends(get_db),
-    principal: AuthenticatedPrincipal = Depends(require("application:issue_card"))
-):
-    card = CardIssuanceService.issue_card_manual(db, credit_account_id, data, principal.user_id)
-    payload = CardResponse.model_validate(card)
-    return envelope_success(payload.model_dump(mode='json'))
+
+

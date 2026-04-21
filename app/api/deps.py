@@ -15,9 +15,18 @@ def get_db():
     finally:
         db.close()
 
-# Legacy stubs for tests to override
+# Re-export async DB dependency for routers
+from app.db.session import get_async_db  # noqa: F401
+
+# --- LEGACY SHIMS FOR TEST COMPATIBILITY ---
 def get_current_admin_user():
-    raise NotImplementedError("Legacy RBAC removed. Use app.core.rbac.require()")
+    """Shim for legacy tests."""
+    pass
+
+def get_current_user():
+    """Shim for legacy tests."""
+    pass
 
 def get_current_authenticated_user():
-    raise NotImplementedError("Legacy RBAC removed. Use app.core.rbac.require()")
+    """Shim for legacy tests."""
+    pass

@@ -13,7 +13,8 @@ SessionLocal = sessionmaker(
 
 # Async setup (for Bureau Scoring as per spec)
 async_url = settings.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
-async_engine = create_async_engine(async_url, echo=True)
+from sqlalchemy import pool
+async_engine = create_async_engine(async_url, echo=True, poolclass=pool.NullPool)
 AsyncSessionLocal = async_sessionmaker(
     bind=async_engine,
     autocommit=False,

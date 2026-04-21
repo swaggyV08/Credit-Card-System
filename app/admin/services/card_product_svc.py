@@ -61,6 +61,28 @@ class CardProductService:
         return card
 
     @staticmethod
+    def reject_card_product(db: Session, card_id: UUID, reject_reason: str, actor_id: UUID) -> CardProductCore:
+        card = CardProductService.get_card(db, card_id)
+        if card.governance.status != ProductStatus.DRAFT:
+            raise HTTPException(status_code=400, detail="Only DRAFT card products can be rejected")
+        card.governance.status = ProductStatus.REJECTED
+        card.governance.updated_by = actor_id
+        db.commit()
+        db.refresh(card)
+        return card
+
+    @staticmethod
+    def suspend_card_product(db: Session, card_id: UUID, actor_id: UUID) -> CardProductCore:
+        card = CardProductService.get_card(db, card_id)
+        if card.governance.status != ProductStatus.ACTIVE:
+            raise HTTPException(status_code=400, detail="Only ACTIVE card products can be suspended")
+        card.governance.status = ProductStatus.SUSPENDED
+        card.governance.updated_by = actor_id
+        db.commit()
+        db.refresh(card)
+        return card
+
+    @staticmethod
     def delete_card_product(db: Session, card_id: UUID) -> dict:
         """
         Hard deletes a card product and its configurations.

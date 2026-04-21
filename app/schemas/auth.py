@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict, condecimal
+from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict, condecimal, model_validator
 from decimal import Decimal
 from typing import Optional, List
 from datetime import date
@@ -58,26 +58,95 @@ class NameSchema(BaseModel):
         return v
 
 
+class RegisterFullName(BaseModel):
+    first_name: str = Field(..., min_length=1, max_length=50)
+    last_name: str = Field(..., min_length=1, max_length=50)
+
+    @field_validator("first_name", "last_name")
+    @classmethod
+    def letters_only(cls, v):
+        if not v.isalpha():
+            raise ValueError("must contain letters only")
+        return v
+
+class RegisterPhone(BaseModel):
+    country_code: str
+    number: str
+
+    @model_validator(mode='after')
+    def validate_phone(self) -> 'RegisterPhone':
+        allowed = {
+            "+91": ("India", 10),
+            "+1": ("USA", 10),
+            "+44": ("UK", 10),
+            "+61": ("Australia", 9),
+            "+971": ("UAE", 9),
+            "+7": ("Russia", 10),
+        }
+        
+        if self.country_code not in allowed:
+            raise ValueError("Country not supported. Allowed: India, USA, UK, Australia, UAE, Russia.")
+            
+        country_name, required_len = allowed[self.country_code]
+        if not self.number.isdigit():
+            raise ValueError(f"Phone number for {self.country_code} ({country_name}) must be digits only.")
+            
+        if len(self.number) != required_len:
+            raise ValueError(f"Phone number for {self.country_code} ({country_name}) must be exactly {required_len} digits. You provided {len(self.number)}.")
+            
+        return self
+
+
 class CreateRegistrationRequest(BaseModel):
-    full_name: str = Field(..., min_length=2)
-    contact: ContactSchema
-    email: EmailStr
-    date_of_birth: date
-    password: str = Field(..., min_length=12)
+    full_name: RegisterFullName
+    date_of_birth: date = Field(..., description="ISO 8601 date string, e.g. '1998-07-21'", json_schema_extra={"example": "1998-07-21"})
+    email: str
+    phone: RegisterPhone
+    password: str
     confirm_password: str
 
-    @field_validator("email", mode="before")
+    @field_validator("date_of_birth")
     @classmethod
-    def lowercase_email(cls, v):
-        if isinstance(v, str):
-            return v.lower().strip()
+    def validate_dob_age(cls, v):
+        """Ensure the applicant is at least 18 years old."""
+        from dateutil.relativedelta import relativedelta
+        today = date.today()
+        age = relativedelta(today, v).years
+        if age < 18:
+            raise ValueError("You must be at least 18 years old to register.")
         return v
 
-    @field_validator("full_name")
-    def validate_full_name(cls, v):
-        if not v.replace(" ", "").isalpha():
-            raise ValueError("Name should only contain letters and spaces")
+    @field_validator("email")
+    @classmethod
+    def email_rfc(cls, v):
+        if any(c.isupper() for c in v):
+            raise ValueError("Email must be lowercase only.")
+        import re
+        if not re.match(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$", v):
+            raise ValueError("value is not a valid email address: The email address is not valid. It must have exactly one @-sign.")
         return v
+
+    @model_validator(mode='after')
+    def passwords_match(self) -> 'CreateRegistrationRequest':
+        p = self.password
+        if len(p) < 12:
+            raise ValueError("Password must be at least 12 characters.")
+        if len(p) > 20:
+            raise ValueError("Password cannot exceed 20 characters.")
+        import re
+        if not re.search(r'[A-Z]', p):
+            raise ValueError("Password must contain at least 1 uppercase letter.")
+        if not re.search(r'[a-z]', p):
+            raise ValueError("Password must contain at least 1 lowercase letter.")
+        if not re.search(r'[0-9]', p):
+            raise ValueError("Password must contain at least 1 digit.")
+        if not re.search(r'[!@#\$%\^&\*\(\)_\+\-\=\{\}\[\]\\\|:;"\'<>,.\?/]', p):
+            raise ValueError("Password must contain at least 1 special character.")
+            
+        if self.password != self.confirm_password:
+            raise ValueError("Passwords do not match.")
+            
+        return self
 
 
 class VerifyRegistrationRequest(BaseModel):
@@ -127,6 +196,10 @@ class OTPDispatcherRequest(BaseModel):
         description="The OTP code received by the user. Mandatory for 'verify' command."
     )
     password_reset: Optional[PasswordResetContact] = None
+    activation_id: Optional[uuid.UUID] = Field(
+        None,
+        description="The unique activation ID from Stage 1. Mandatory for purpose=ACTIVATION."
+    )
 
     @field_validator("purpose", mode="before")
     @classmethod
@@ -135,6 +208,14 @@ class OTPDispatcherRequest(BaseModel):
         if isinstance(v, str):
             return v.strip().upper()
         return v
+
+    @model_validator(mode='after')
+    def validate_activation_integrity(self) -> 'OTPDispatcherRequest':
+        """Ensure activation_id is provided if the purpose is ACTIVATION."""
+        purpose_str = self.purpose.value if hasattr(self.purpose, 'value') else str(self.purpose)
+        if purpose_str == "ACTIVATION" and not self.activation_id:
+            raise ValueError("activation_id is mandatory when purpose is 'ACTIVATION'")
+        return self
 
 
 # RESET PASSWORD (AFTER LOGIN)
@@ -164,42 +245,11 @@ from app.models.enums import (
     PreferredLanguage
 )
 
-class DateOfBirthSchema(BaseModel):
-    year: int
-    month: int
-    day: int
-
-    @field_validator("year")
-    def validate_year(cls, v):
-        current_year = date.today().year
-        if v < 1900 or v > current_year:
-            raise ValueError("Invalid year")
-        return v
-
-    @field_validator("month")
-    def validate_month(cls, v):
-        if v < 1 or v > 12:
-            raise ValueError("Month must be between 1 and 12")
-        return v
-
-    @field_validator("day")
-    def validate_day(cls, v):
-        if v < 1 or v > 31:
-            raise ValueError("Day must be between 1 and 31")
-        return v
-
-    def to_date(self):
-        try:
-            return date(self.year, self.month, self.day)
-        except ValueError:
-            raise ValueError("Invalid calendar date")
-        
-
 class PersonalDetailsSchema(BaseModel):
     nationality: Country
     dual_citizenship: YesNo = YesNo.NO
     country_of_residence: Country
-    date_of_birth: DateOfBirthSchema
+    date_of_birth: date = Field(..., description="ISO 8601 date string, e.g. '1990-01-15'", json_schema_extra={"example": "1990-01-15"})
     gender: Gender
     marital_status: MaritalStatus
     preferred_language: PreferredLanguage = PreferredLanguage.ENGLISH

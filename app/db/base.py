@@ -55,10 +55,19 @@ from app.models.audit import AuditLog
 
 # Billing Layer (Week 5)
 from app.models.billing import (
-    Statement, StatementLineItem, Payment,
-    FraudFlag as TransactionFraudFlag,   # transaction-level fraud flags
+    Bill, Statement, StatementLineItem, Payment,
     IdempotencyKey,
 )
 
 # Bureau Scoring Layer
-from app.models.bureau import BureauScore
+# (Bureau system models removed)
+
+# Token Blacklist Layer
+from app.models.token_blacklist import BlacklistedToken
+
+# Jobs & Transactions Layer
+from app.models.jobs import JobLog
+from app.models.transactions.fees import Fee
+from app.models.transactions.transactions import Transaction
+from app.models.transactions.clearing import ClearingBatch, ClearingRecord
+from app.models.transactions.settlement import SettlementRun, SettlementRecord

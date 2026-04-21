@@ -53,7 +53,7 @@ class CCMCreditAccountResponse(CCMCreditAccountBase):
 # Base Card
 # -----------------
 class CCMCreditCardBase(BaseModel):
-    user_id: uuid.UUID = Field(..., description="Unique identifier of the cardholder/user")
+    user_id: str = Field(..., description="Unique identifier of the cardholder/user")
     card_number: str = Field(..., description="Full PAN (Primary Account Number), usually masked in responses")
     card_network: CardNetwork = Field(..., description="Payment network (e.g., VISA, MASTERCARD, RUPAY)")
     card_variant: CardVariant = Field(..., description="Card tier (e.g., CLASSIC, PLATINUM, INFINITE)")

@@ -47,6 +47,46 @@ class FraudAction(str, enum.Enum):
 
 
 # ═══════════════════════════════════════════════════════
+# BILL
+# ═══════════════════════════════════════════════════════
+class Bill(Base):
+    __tablename__ = "bills"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=_new_uuid,
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("credit_account.id"), nullable=False, index=True
+    )
+
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="GENERATED",
+    )
+    billing_cycle_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    billing_cycle_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    previous_balance: Mapped[Decimal] = mapped_column(Numeric(15, 2), default=Decimal("0.0"))
+    new_charges: Mapped[Decimal] = mapped_column(Numeric(15, 2), default=Decimal("0.0"))
+    foreign_fees_total: Mapped[Decimal] = mapped_column(Numeric(15, 2), default=Decimal("0.0"))
+    interest: Mapped[Decimal] = mapped_column(Numeric(15, 2), default=Decimal("0.0"))
+    other_fees: Mapped[Decimal] = mapped_column(Numeric(15, 2), default=Decimal("0.0"))
+    credits: Mapped[Decimal] = mapped_column(Numeric(15, 2), default=Decimal("0.0"))
+
+    total_due: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    min_payment_due: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    due_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    transactions_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Relationships
+    statements: Mapped[list["Statement"]] = relationship(back_populates="bill")
+    fees: Mapped[list["Fee"]] = relationship(back_populates="bill")
+
+    def __repr__(self) -> str:
+        return f"<Bill {self.id} cycle_end={self.billing_cycle_end} status={self.status}>"
+
+
+# ═══════════════════════════════════════════════════════
 # STATEMENT
 # ═══════════════════════════════════════════════════════
 class Statement(Base):
@@ -55,78 +95,37 @@ class Statement(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=_new_uuid,
     )
-    credit_account_id: Mapped[uuid.UUID] = mapped_column(
+    account_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("credit_account.id"), nullable=False,
     )
     card_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("card.id"), nullable=False, index=True,
     )
 
-    # Cycle dates
-    cycle_start: Mapped[date] = mapped_column(Date, nullable=False)
-    cycle_end: Mapped[date] = mapped_column(Date, nullable=False)
-    payment_due_date: Mapped[date] = mapped_column(Date, nullable=False)
+    bill_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("bills.id"), nullable=False, index=True
+    )
+    billing_cycle: Mapped[str] = mapped_column(String(7), nullable=False) # YYYY-MM
+    
+    total_charges: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    total_foreign_fees: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    interest_charged: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    total_due: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    min_payment_due: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    due_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    # Financials
-    opening_balance: Mapped[Decimal] = mapped_column(
-        Numeric(15, 2), nullable=False, default=Decimal("0"),
-    )
-    total_purchases: Mapped[Decimal] = mapped_column(
-        Numeric(15, 2), nullable=False, default=Decimal("0"),
-    )
-    total_cash_advances: Mapped[Decimal] = mapped_column(
-        Numeric(15, 2), nullable=False, default=Decimal("0"),
-    )
-    total_fees: Mapped[Decimal] = mapped_column(
-        Numeric(15, 2), nullable=False, default=Decimal("0"),
-    )
-    total_interest: Mapped[Decimal] = mapped_column(
-        Numeric(15, 2), nullable=False, default=Decimal("0"),
-    )
-    total_credits: Mapped[Decimal] = mapped_column(
-        Numeric(15, 2), nullable=False, default=Decimal("0"),
-    )
-    total_payments: Mapped[Decimal] = mapped_column(
-        Numeric(15, 2), nullable=False, default=Decimal("0"),
-    )
-    closing_balance: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
-    minimum_due: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
-    total_amount_due: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
-
-    # Status
-    status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default=StatementStatus.BILLED.value,
-    )
-
-    # Audit
-    generated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow,
-    )
-    generated_by: Mapped[uuid.UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("admins.id"), nullable=True,
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow,
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow,
-    )
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     # Relationships
-    line_items: Mapped[list["StatementLineItem"]] = relationship(
-        back_populates="statement", lazy="selectin",
-    )
+    bill: Mapped["Bill"] = relationship(back_populates="statements")
+    line_items: Mapped[list["StatementLineItem"]] = relationship(back_populates="statement", lazy="selectin")
 
     __table_args__ = (
-        Index("ix_stmt_account_cycle", "credit_account_id", "cycle_end"),
-        Index("ix_stmt_card_cycle", "card_id", "cycle_start", "cycle_end"),
+        Index("ix_stmt_card_cycle", "card_id", "billing_cycle"),
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<Statement {self.id} {self.cycle_start}–{self.cycle_end} "
-            f"status={self.status}>"
-        )
+        return f"<Statement {self.id} cycle={self.billing_cycle}>"
 
 
 # ═══════════════════════════════════════════════════════
@@ -175,11 +174,12 @@ class Payment(Base):
     card_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("card.id"), nullable=False, index=True,
     )
-    statement_id: Mapped[uuid.UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("statements.id"), nullable=True,
+    bill_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("bills.id"), nullable=True,
     )
 
     amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
+    payment_type: Mapped[str] = mapped_column(String(20), nullable=False, default="FULL")
     payment_source: Mapped[str] = mapped_column(String(20), nullable=False)
     reference_no: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(
@@ -199,6 +199,10 @@ class Payment(Base):
     allocated_purchases: Mapped[Decimal] = mapped_column(
         Numeric(15, 2), default=Decimal("0"),
     )
+    remaining_balance: Mapped[Decimal] = mapped_column(
+        Numeric(15, 2), default=Decimal("0"),
+    )
+    is_partial: Mapped[bool] = mapped_column(Boolean, default=False)
 
     payment_date: Mapped[date] = mapped_column(Date, nullable=False)
     posted_at: Mapped[datetime | None] = mapped_column(
@@ -222,30 +226,10 @@ class Payment(Base):
         return f"<Payment {self.id} amount={self.amount} status={self.status}>"
 
 
-# ═══════════════════════════════════════════════════════
-# FRAUD FLAG
-# ═══════════════════════════════════════════════════════
-class FraudFlag(Base):
-    __tablename__ = "fraud_flags"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), primary_key=True, default=_new_uuid,
-    )
-    transaction_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("transactions.id"), nullable=False,
-    )
-    card_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("card.id"), nullable=False,
-    )
-    rule: Mapped[str] = mapped_column(String(20), nullable=False)
-    action: Mapped[str] = mapped_column(String(10), nullable=False)
-    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    flagged_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow,
-    )
 
-    def __repr__(self) -> str:
-        return f"<FraudFlag {self.id} rule={self.rule} action={self.action}>"
+
+
 
 
 # ═══════════════════════════════════════════════════════

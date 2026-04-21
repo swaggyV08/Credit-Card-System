@@ -1,325 +1,142 @@
-"""
-Transactions Router — Week 5 Enhanced
-
-Wires fraud checks and idempotency service into the transaction creation flow.
-
-Endpoints:
-  POST  /cards/{card_id}/transactions     — Create transaction (with fraud + idempotency)
-  GET   /cards/{card_id}/transactions     — List transactions (paginated)
-  GET   /transactions/{txn_id}            — Get transaction detail
-  PATCH /transactions/{txn_id}            — State transitions (reverse, void, flag, unflag, capture)
-"""
+from fastapi import APIRouter, Depends, Header, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional
 from uuid import UUID
-from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Header, Query
-from sqlalchemy.orm import Session
-from decimal import Decimal
 
-from app.api.deps import get_db
+from app.api.deps import get_async_db
 from app.core.rbac import require, AuthenticatedPrincipal
-from app.schemas.base import envelope_success
-from app.schemas.responses import TransactionCreateResponse, TransactionListResponse
-
-from app.models.transactions.transactions import Transaction
-from app.schemas.transactions.transactions import (
-    CreateTransactionRequest, TransactionSummarySchema, TransactionDetailSchema,
-    TransactionCommandRequest
+from app.schemas.engine_schemas import (
+    AuthorizeTransactionReq,
+    AuthorizeTransactionResp,
+    PaginatedTransactionResp
 )
-from app.services.transactions.transaction_service import TransactionService, HoldService
-from app.services.idempotency_service import IdempotencyService
-from app.core.exceptions import (
-    MissingIdempotencyKeyError, InvalidIdempotencyKeyError,
-)
+from app.services.transaction_engine import TransactionEngine
+from app.models.transactions.enums import TransactionType, TransactionStatus
+from datetime import datetime, date
 
 router = APIRouter(tags=["Transactions"])
 
+@router.post(
+    "/credit-cards/{card_id}/transactions",
+    response_model=AuthorizeTransactionResp,
+    status_code=201,
+    summary="Authorize Transaction",
+    description="""
+FUNCTIONALITY:
+Real-time authorization and hold placement for a credit card transaction. It implements a pessimistic lock (SELECT FOR UPDATE) on the Account and Card records using SERIALIZABLE isolation to prevent race conditions. The response confirms the allocation of funds against the user's available credit.
 
-@router.post("/cards/{card_id}/transactions", status_code=201, response_model=TransactionCreateResponse)
-def create_transaction(
-    card_id: UUID,
-    request: CreateTransactionRequest,
-    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
-    db: Session = Depends(get_db),
-    principal: AuthenticatedPrincipal = Depends(require("transaction:initiate")),
+ROLES THAT CAN ACCESS THE ENDPOINT:
+- USER (own card only)
+
+MATH FORMULA:
+foreign_fee = amount × 0.03 (if the merchant_country differs from the account home_country)
+hold_amount = amount + foreign_fee
+available_credit_after = available_credit_before - hold_amount
+
+LOGIC AND NECESSITY OF THE ENDPOINT:
+Required to instantly authorize purchases and lock credit securely. Includes in-memory velocity boundary checks (max 5 transactions or 10000 limit) and strict fraud rules to automatically block irregular behaviors. Returns perfectly standardized mapped error codes on failures.
+
+Enums for 'category':
+- PURCHASE
+- BALANCE_TRANSFER
+- CASH_WITHDRAWAL
+"""
+)
+async def authorize_transaction(
+    card_id: str,
+    request: AuthorizeTransactionReq,
+    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+    db: AsyncSession = Depends(get_async_db),
+    principal: AuthenticatedPrincipal = Depends(require("transaction:initiate"))
 ):
-    """
-    Initiates a transaction via authorization pipeline.
-
-    **What it does:**
-    Simulates a card swipe or online purchase. Runs the full authorization pipeline:
-    idempotency dedup → card validation → velocity check → fraud scoring → authorization.
-    Creates a credit hold against the card's available credit.
-
-    **Headers:**
-    - `Idempotency-Key` (required): UUID to prevent duplicate charges.
-
-    **Request Body (`CreateTransactionRequest`):**
-    - `transaction_type` enum: `PURCHASE` | `CASH_ADVANCE` | `BALANCE_TRANSFER` | `QUASI_CASH` | `REFUND` | `PRE_AUTH` | `FEE` | `INTEREST_CHARGE` | `PAYMENT` | `FEE_WAIVER`
-    - `pos_entry_mode` enum (optional): `CHIP` | `SWIPE` | `NFC` | `MANUAL`
-    - `amount`: Decimal > 0 (2 decimal places)
-    - `merchant_category_code`: 4-digit MCC string
-    - `merchant_country`: ISO 3166-1 alpha-2 code
-    - `card_not_present`: Boolean (if true, `cvv2` is required)
-
-    **Roles:** `transaction:initiate` (User / Admin)
-
-    **Response:** `{ transaction_id, auth_code, status, amount, available_credit, hold_id, hold_expiry }`
-    """
-    # ── Step 0: Idempotency check ──
-    if not idempotency_key:
-        raise MissingIdempotencyKeyError()
-    
-    cached = IdempotencyService.check_idempotency(db, idempotency_key, str(card_id))
-    if cached:
-        # Return cached response with replay header
-        from fastapi.responses import JSONResponse
-        return JSONResponse(
-            content=cached["response_body"],
-            status_code=cached["status_code"],
-            headers={"X-Idempotency-Replay": "true"}
-        )
-
-    # ── Step 1: Legacy duplicate check ──
-    duplicate = TransactionService.check_duplicate(
-        db, card_id, request.merchant_id, request.amount, idempotency_key,
+    # Enforces the lock, logic, and idempotency as exactly specified
+    result = await TransactionEngine.authorize(
+        db=db,
+        credit_card_id=card_id,
+        user_id=principal.user_id,
+        idempotency_key=idempotency_key,
+        payload=request
     )
-    if duplicate:
-        response = envelope_success({
-            "transaction_id": str(duplicate.id),
-            "auth_code": duplicate.auth_code,
-            "status": duplicate.status,
-            "message": "Duplicate transaction detected. Returning cached response.",
-        })
-        return response
-
-    # ── Step 2: Card validation ──
-    card = TransactionService.validate_card(db, card_id, user_id=principal.user_id)
-
-    # ── Step 3: Velocity check (Now handles Redis counters) ──
-    TransactionService.check_velocity(db, card_id, request.amount)
-
-    # ── Step 5: Authorization ──
-    result = TransactionService.authorize_transaction(
-        db, card, request, idempotency_key, actor_id=principal.user_id,
-    )
-
-    # Must dump complex models for envelope
-    result_dict = result.model_dump(mode="json") if hasattr(result, "model_dump") else result
-    response = envelope_success(result_dict)
-
-    # ── Step 6: Store idempotency result ──
-    if idempotency_key:
-        IdempotencyService.store_idempotency_result(
-            db=db,
-            key=idempotency_key,
-            card_id=card_id,
-            response_body=response,
-            status_code=201,
-        )
-        db.commit()
-
-    return response
+    return result
 
 
-@router.get("/cards/{card_id}/transactions", response_model=TransactionListResponse)
-def list_transactions(
-    card_id: UUID,
-    status: str | None = None,
-    transaction_type: str | None = None,
-    date_from: datetime | None = None,
-    date_to: datetime | None = None,
-    merchant_name: str | None = None,
+@router.get(
+    "/credit-cards/{card_id}/transactions/{transaction_id}",
+    response_model=PaginatedTransactionResp,
+    status_code=200,
+    summary="Query Transactions",
+    description="""
+FUNCTIONALITY:
+Paginated, multi-filter, sortable endpoint to fetch historical settled or authorized transactions. It applies AND logic across all query parameters.
+
+ROLES THAT CAN ACCESS THE ENDPOINT:
+- USER (own card only)
+
+MATH FORMULA:
+Total Pages = ceil(total / limit)
+Offset = (page - 1) * limit
+
+LOGIC AND NECESSITY OF THE ENDPOINT:
+Provides full transparency for users surveying their transactions securely. Prevents returning large payloads dynamically via limit boundaries and ensures strict RBAC mapping validating the card_id header bounds.
+"""
+)
+async def list_or_get_transactions(
+    card_id: str,
+    transaction_id: Optional[UUID] = None,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    sort_by: str = "created_at",
-    sort_order: str = "desc",
-    include: str | None = Query(None, description="include=holds to see active holds"),
-    db: Session = Depends(get_db),
-    principal: AuthenticatedPrincipal = Depends(require("transaction:read")),
+    limit: int = Query(20, ge=1, le=100),
+    sort_by: str = Query("timestamp"),
+    order: str = Query("desc"),
+    date_from: Optional[str] = Query(None, openapi_examples={"default": {"value": "YYYY-MM-DD"}}, description="Formatted date watermark: YYYY-MM-DD. Must be within current month."),
+    date_to: Optional[str] = Query(None, openapi_examples={"default": {"value": "YYYY-MM-DD"}}, description="Formatted date watermark: YYYY-MM-DD. Max value is today."),
+    amount_min: Optional[str] = Query(None),
+    amount_max: Optional[str] = Query(None),
+    merchant: Optional[str] = Query(None),
+    category: Optional[TransactionType] = Query(None, description="Select from category dropdown"),
+    status: Optional[TransactionStatus] = Query(None, description="Select from status dropdown"),
+    db: AsyncSession = Depends(get_async_db),
+    principal: AuthenticatedPrincipal = Depends(require("transaction:read"))
 ):
-    """
-    Lists transactions for a card with filters and pagination.
+    # --- DATE VALIDATION ---
+    now = datetime.now()
+    today = now.date()
+    first_of_month = today.replace(day=1)
 
-    **What it does:**
-    Returns a paginated, filterable list of all transactions on the card.
-    Optionally includes active credit holds via `?include=holds`.
-
-    **Query Parameters:**
-    - `status`: Filter by transaction status (e.g., `AUTHORIZED`, `SETTLED`, `REVERSED`)
-    - `transaction_type`: Filter by type (e.g., `PURCHASE`, `CASH_ADVANCE`)
-    - `date_from` / `date_to`: Date range filter
-    - `merchant_name`: Partial match filter
-    - `include=holds`: Includes active `CreditHold` objects and aggregated hold totals
-    - `sort_by` / `sort_order`: Sorting controls
-
-    **Transaction Status enum:** `PENDING_AUTHORIZATION` | `AUTHORIZED` | `CLEARED` | `SETTLED` | `REVERSED` | `VOIDED` | `DECLINED` | `DISPUTED` | `CHARGED_BACK` | `FORCE_POST` | `BLOCKED`
-
-    **Roles:** `transaction:read` (User / Admin)
-
-    **Response:** `{ data: [TransactionSummary], total_hold_amount, available_credit, meta: { total, page, page_size } }`
-    """
-    query = db.query(Transaction).filter(
-        Transaction.card_id == card_id, Transaction.is_deleted == False,
-    )
-
-    if status:
-        query = query.filter(Transaction.status == status)
-    if transaction_type:
-        query = query.filter(Transaction.transaction_type == transaction_type)
     if date_from:
-        query = query.filter(Transaction.created_at >= date_from)
+        try:
+            df = datetime.strptime(date_from, "%Y-%m-%d").date()
+            if df < first_of_month:
+                raise AppError(code="INVALID_DATE_RANGE", message="date_from must be within the current month.", http_status=400)
+        except ValueError:
+             raise AppError(code="INVALID_FORMAT", message="date_from must be in YYYY-MM-DD format.", http_status=400)
+
     if date_to:
-        query = query.filter(Transaction.created_at <= date_to)
-    if merchant_name:
-        query = query.filter(Transaction.merchant_name.ilike(f"%{merchant_name}%"))
+        try:
+            dt = datetime.strptime(date_to, "%Y-%m-%d").date()
+            if dt > today:
+                raise AppError(code="INVALID_DATE_RANGE", message="date_to cannot be in the future.", http_status=400)
+        except ValueError:
+             raise AppError(code="INVALID_FORMAT", message="date_to must be in YYYY-MM-DD format.", http_status=400)
 
-    total = query.count()
-    sort_col = getattr(Transaction, sort_by, Transaction.created_at)
-    if sort_order == "asc":
-        query = query.order_by(sort_col.asc())
-    else:
-        query = query.order_by(sort_col.desc())
-
-    results = query.offset((page - 1) * page_size).limit(page_size).all()
+    query_params = {
+        "page": page,
+        "limit": limit,
+        "sort_by": sort_by,
+        "order": order,
+        "date_from": date_from,
+        "date_to": date_to,
+        "amount_min": amount_min,
+        "amount_max": amount_max,
+        "merchant": merchant,
+        "category": category,
+        "status": status,
+        "transaction_id": transaction_id
+    }
     
-    total_hold = Decimal("0")
-    available_credit = Decimal("0") # Default if not requested
-    
-    if include == "holds":
-        # Add holds logic
-        from app.models.transactions.transactions import CreditHold
-        from app.models.transactions.enums import HoldStatus
-        for t in results:
-            t.active_holds = [h for h in t.holds if h.status == HoldStatus.ACTIVE.value]
-        
-        # Calculate aggregates for the account
-        _, total_hold, available_credit = HoldService.get_holds(db, card_id)
-
-    data = [
-        TransactionSummarySchema.model_validate(t).model_dump(mode="json")
-        for t in results
-    ]
-
-    return envelope_success({
-        "data": data,
-        "total_hold_amount": total_hold,
-        "available_credit": available_credit,
-        "meta": {"total": total, "page": page, "page_size": page_size},
-    })
-
-
-@router.get("/transactions/{txn_id}")
-def get_transaction(
-    txn_id: UUID,
-    db: Session = Depends(get_db),
-    principal: AuthenticatedPrincipal = Depends(require("transaction:read")),
-):
-    """
-    Gets detailed transaction view including embedded holds and disputes.
-
-    **What it does:**
-    Returns the full transaction record with all merchant details, risk scoring,
-    idempotency key, metadata, and any linked dispute summary.
-
-    **Roles:** `transaction:read` (User / Admin)
-
-    **Response:** `TransactionDetailSchema` with merchant details, risk tier, linked dispute, and holds.
-    """
-    txn = db.query(Transaction).filter(Transaction.id == txn_id).first()
-    if not txn:
-        raise HTTPException(status_code=404, detail="Transaction not found")
-    data = TransactionDetailSchema.model_validate(txn).model_dump(mode="json")
-    return envelope_success(data)
-
-
-@router.put("/transactions/{txn_id}")
-def transition_transaction(
-    txn_id: UUID,
-    command: str = Query(..., description="reverse | void | flag | unflag | capture"),
-    body: TransactionCommandRequest = None,
-    db: Session = Depends(get_db),
-    principal: AuthenticatedPrincipal = Depends(require("transaction:state")),
-):
-    """
-    State-transition functionality for a single transaction.
-
-    **What it does:**
-    Unified command dispatcher that moves a transaction through its lifecycle.
-    Each command triggers different business logic (credit restoration, fraud flagging, etc.).
-
-    **Query Parameter `command`:**
-    - `reverse` — Reverses the transaction and restores credit. Requires `reason`.
-    - `void` — Voids an authorized-but-unsettled transaction. Requires `reason`.
-    - `flag` — Marks the transaction for internal fraud review. Requires `flag_reason`.
-    - `unflag` — Clears a fraud flag. Requires `unflag_reason`.
-    - `capture` — Captures a pre-auth transaction for the specified `amount`.
-    - `release_hold` — Manually releases an active credit hold. Requires `reason`.
-
-    **Request Body (`TransactionCommandRequest`):**
-    - `amount`: Decimal (for `capture` command)
-    - `reason` / `flag_reason` / `unflag_reason`: String explanations
-
-    **Roles:** `transaction:state` (Admin / Super Admin only)
-
-    **Response:** Updated `TransactionDetailSchema`.
-    """
-    txn = db.query(Transaction).filter(Transaction.id == txn_id).first()
-    if not txn:
-        raise HTTPException(status_code=404, detail="Transaction not found")
-
-    body = body or TransactionCommandRequest()
-
-    if command == "reverse":
-        reason = body.reason or "Admin reversal"
-        result = TransactionService.reverse_transaction(
-            db, txn, reason, actor_id=principal.user_id,
-        )
-    elif command == "void":
-        reason = body.reason or "Voided"
-        result = TransactionService.void_transaction(
-            db, txn, reason, actor_id=principal.user_id,
-        )
-    elif command == "flag":
-        if not body.flag_reason:
-            raise HTTPException(
-                status_code=422,
-                detail="flag_reason is required for the 'flag' command",
-            )
-        result = TransactionService.flag_transaction(
-            db, txn, body.flag_reason, actor_id=principal.user_id,
-        )
-    elif command == "unflag":
-        if not body.unflag_reason:
-            raise HTTPException(
-                status_code=422,
-                detail="unflag_reason is required for the 'unflag' command",
-            )
-        result = TransactionService.unflag_transaction(
-            db, txn, body.unflag_reason, actor_id=principal.user_id,
-        )
-    elif command == "capture":
-        result = TransactionService.capture_preauth(
-            db, txn, body.amount, actor_id=principal.user_id,
-        )
-    elif command == "release_hold":
-        if not body.reason:
-            raise HTTPException(status_code=422, detail="reason is required for release_hold")
-        # Find active hold for this txn
-        from app.models.transactions.transactions import CreditHold
-        from app.models.transactions.enums import HoldStatus
-        hold = db.query(CreditHold).filter(
-            CreditHold.transaction_id == txn.id,
-            CreditHold.status == HoldStatus.ACTIVE.value
-        ).first()
-        if not hold:
-            raise HTTPException(status_code=404, detail="No active hold found for this transaction")
-        result_hold = HoldService.release_hold(db, hold.id, body.reason, actor_id=principal.user_id)
-        return envelope_success(TransactionDetailSchema.model_validate(txn).model_dump(mode="json"))
-    else:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown command: '{command}'. Supported: reverse, void, flag, unflag, capture, release_hold",
-        )
-
-    data = TransactionDetailSchema.model_validate(result).model_dump(mode="json")
-    return envelope_success(data)
+    result = await TransactionEngine.query_transactions(
+        db=db,
+        credit_card_id=card_id,
+        user_id=principal.user_id,
+        params=query_params
+    )
+    return result

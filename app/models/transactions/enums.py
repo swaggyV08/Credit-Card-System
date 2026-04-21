@@ -13,13 +13,7 @@ class TransactionType(str, Enum):
     PURCHASE = "PURCHASE"
     CASH_ADVANCE = "CASH_ADVANCE"
     BALANCE_TRANSFER = "BALANCE_TRANSFER"
-    QUASI_CASH = "QUASI_CASH"
-    REFUND = "REFUND"
-    PRE_AUTH = "PRE_AUTH"
-    FEE = "FEE"
     INTEREST_CHARGE = "INTEREST_CHARGE"
-    PAYMENT = "PAYMENT"
-    FEE_WAIVER = "FEE_WAIVER"
 
 
 class TransactionStatus(str, Enum):
@@ -36,6 +30,8 @@ class TransactionStatus(str, Enum):
     DISPUTE_REJECTED = "DISPUTE_REJECTED"
     FORCE_POST = "FORCE_POST"
     BLOCKED = "BLOCKED"
+    TERMINATED = "TERMINATED"
+    HOLD = "HOLD"
 
 
 class POSEntryMode(str, Enum):
@@ -99,11 +95,7 @@ class DisputeType(str, Enum):
     """Dispute reason classification."""
     UNAUTHORIZED = "UNAUTHORIZED"
     DUPLICATE_CHARGE = "DUPLICATE_CHARGE"
-    GOODS_NOT_RECEIVED = "GOODS_NOT_RECEIVED"
-    QUALITY_ISSUE = "QUALITY_ISSUE"
     PROCESSING_ERROR = "PROCESSING_ERROR"
-    SUBSCRIPTION_CANCEL = "SUBSCRIPTION_CANCEL"
-    FRAUD = "FRAUD"
 
 
 class DisputeStatus(str, Enum):
@@ -153,11 +145,16 @@ class PaymentStatus(str, Enum):
 class PaymentSource(str, Enum):
     """Payment source channel."""
     BANK_ACCOUNT = "BANK_ACCOUNT"
-    BANK_TRANSFER = "BANK_TRANSFER"
     NEFT = "NEFT"
     RTGS = "RTGS"
     UPI = "UPI"
     CHEQUE = "CHEQUE"
+
+class PaymentType(str, Enum):
+    """Payment type."""
+    FULL = "FULL"
+    MINIMUM = "MINIMUM"
+    PARTIAL = "PARTIAL"
 
 
 # =====================================================
@@ -165,12 +162,10 @@ class PaymentSource(str, Enum):
 # =====================================================
 class StatementStatus(str, Enum):
     """Statement lifecycle states."""
-    OPEN = "OPEN"
-    BILLED = "BILLED"
+    PENDING = "PENDING"
     PAID = "PAID"
-    PARTIALLY_PAID = "PARTIALLY_PAID"
     OVERDUE = "OVERDUE"
-    WAIVED = "WAIVED"
+    CLOSED = "CLOSED"
 
 
 class LineItemType(str, Enum):

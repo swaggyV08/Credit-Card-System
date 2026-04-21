@@ -48,14 +48,15 @@ class CreditProductService:
     def approve_product(db: Session, product_id: UUID, approver_id: UUID, effective_to: Optional[datetime] = None) -> CreditProductInformation:
         product = CreditProductService.get_product(db, product_id)
         
-        if product.governance.created_by == approver_id:
+        if product.governance and product.governance.created_by == approver_id:
             raise HTTPException(status_code=403, detail="Maker-Checker violation: Creator cannot approve their own product")
 
         product.status = ProductStatus.ACTIVE
-        product.governance.approved_by = approver_id
-        product.governance.effective_from = datetime.now(timezone.utc)
-        if effective_to:
-            product.governance.effective_to = effective_to
+        if product.governance:
+            product.governance.approved_by = approver_id
+            product.governance.effective_from = datetime.now(timezone.utc)
+            if effective_to:
+                product.governance.effective_to = effective_to
         
         db.commit()
         db.refresh(product)
@@ -65,12 +66,13 @@ class CreditProductService:
     def reject_product(db: Session, product_id: UUID, approver_id: UUID, reason: Optional[str] = None) -> CreditProductInformation:
         product = CreditProductService.get_product(db, product_id)
         
-        if product.governance.created_by == approver_id:
+        if product.governance and product.governance.created_by == approver_id:
             raise HTTPException(status_code=403, detail="Maker-Checker violation: Creator cannot reject their own product")
 
         product.status = ProductStatus.REJECTED
-        product.governance.approved_by = approver_id
-        product.governance.rejection_reason = reason
+        if product.governance:
+            product.governance.approved_by = approver_id
+            product.governance.rejection_reason = reason
         
         db.commit()
         db.refresh(product)
@@ -84,7 +86,8 @@ class CreditProductService:
             raise HTTPException(status_code=400, detail="Only ACTIVE products can be suspended")
             
         product.status = ProductStatus.SUSPENDED
-        product.governance.updated_by = user_id
+        if product.governance:
+            product.governance.updated_by = user_id
         db.commit()
         db.refresh(product)
         return product

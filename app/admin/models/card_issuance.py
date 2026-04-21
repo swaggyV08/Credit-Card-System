@@ -109,6 +109,7 @@ class CreditAccount(Base, AuditMixin):
     application_id = Column(UUID(as_uuid=True), ForeignKey("credit_card_application.id"), nullable=True) # Traceability
 
     account_currency = Column(String, default="INR")
+    home_country = Column(String(2), default="IN", nullable=False)
     credit_limit = Column(Numeric(15, 2), nullable=False)
     available_limit = Column(Numeric(15, 2), nullable=False)
     cash_advance_limit = Column(Numeric(15, 2), nullable=False)

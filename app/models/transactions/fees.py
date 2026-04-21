@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import String, Numeric, Boolean, DateTime, Text, ForeignKey, Index
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 
 from app.db.base_class import Base
@@ -31,9 +31,18 @@ class Fee(Base):
         PGUUID(as_uuid=True), ForeignKey("card.id"), nullable=False, index=True
     )
 
+    account_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("credit_account.id"), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="POSTED")
+    applied_to_bill_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("bills.id"), nullable=True
+    )
+
     fee_type: Mapped[str] = mapped_column(String(30), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(15, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR")
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     waived: Mapped[bool] = mapped_column(Boolean, default=False)
     waiver_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -43,12 +52,16 @@ class Fee(Base):
         PGUUID(as_uuid=True), ForeignKey("transactions.id"), nullable=True
     )
 
+    assessed_by: Mapped[str | None] = mapped_column(String, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
     __table_args__ = (
         Index("ix_fee_card_type", "card_id", "fee_type"),
     )
+
+    bill: Mapped["Bill"] = relationship("Bill", back_populates="fees")
 
     def __repr__(self) -> str:
         return f"<Fee {self.id} type={self.fee_type} amount={self.amount}>"

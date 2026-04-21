@@ -16,7 +16,23 @@ class Country(str, Enum):
     CANADA = "Canada"
     AUSTRALIA = "Australia"
     UAE = "UAE"
+    # Restricted / Prohibited
     PAKISTAN = "Pakistan"
+    MYANMAR = "Myanmar"
+    SYRIA = "Syria"
+    YEMEN = "Yemen"
+    AFGHANISTAN = "Afghanistan"
+    SOMALIA = "Somalia"
+    SUDAN = "Sudan"
+    SOUTH_SUDAN = "South Sudan"
+    LIBYA = "Libya"
+    LEBANON = "Lebanon"
+    IRAQ = "Iraq"
+    ZIMBABWE = "Zimbabwe"
+    VENEZUELA = "Venezuela"
+    CONGO = "Congo"
+    NORTH_KOREA = "North Korea"
+    IRAN = "Iran"
 
 
 class CountryCode(str, Enum):
@@ -112,9 +128,6 @@ class PreferredLanguage(str, Enum):
 class ApplicationStatus(str, Enum):
     DRAFT = "DRAFT"
     SUBMITTED = "SUBMITTED"
-    KYC_REVIEW = "KYC_REVIEW"
-    PENDING = "PENDING"
-    KYC_PENDING = "KYC_PENDING"
     IN_REVIEW = "IN_REVIEW"
     ADMIN_REVIEW_PENDING = "ADMIN_REVIEW_PENDING"
     APPROVED = "APPROVED"
@@ -363,7 +376,7 @@ class CCMCommand(str, Enum):
     GENERATE = "generate"
     VERIFY = "verify"
     BLOCK = "block"
-    UNBLOCK_OTP = "unblock_otp"
+    UNBLOCK_INI = "unblock_ini"
     UNBLOCK = "unblock"
     REPLACE = "replace"
     TERMINATE = "terminate"

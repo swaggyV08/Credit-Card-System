@@ -19,17 +19,27 @@ class AppError(HTTPException):
 
     def __init__(
         self,
-        *,
         code: str,
         message: str,
         http_status: int = 422,
+        context: dict | None = None,
     ):
+        detail = {
+            "code": code,
+            "message": message,
+        }
+        if context:
+            detail["context"] = context
         super().__init__(
             status_code=http_status,
-            detail={
-                "code": code,
-                "message": message,
-            },
+            detail=detail,
         )
         self.code = code
         self.message = message
+        self.context = context
+
+class RefactoredException(Exception):
+    def __init__(self, error_code: str, message: str, status_code: int = 400):
+        self.error_code = error_code
+        self.message = message
+        self.status_code = status_code

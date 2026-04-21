@@ -71,3 +71,22 @@ class CardControlHistory(Base):
 
     def __repr__(self) -> str:
         return f"<CardControlHistory {self.id} card={self.card_id}>"
+
+
+# =====================================================
+# PROHIBITED / RESTRICTED COUNTRIES TABLE
+# =====================================================
+class ProhibitedCountry(Base):
+    __tablename__ = "prohibited_countries"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=_new_uuid
+    )
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False, unique=True, index=True)
+    country_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    restriction_type: Mapped[str] = mapped_column(String(15), nullable=False)  # PROHIBITED | RESTRICTED
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    def __repr__(self) -> str:
+        return f"<ProhibitedCountry {self.country_code} type={self.restriction_type}>"

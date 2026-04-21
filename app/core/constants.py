@@ -42,7 +42,7 @@ PHONE_MAX_DIGITS = 15
 # ── Dispute ───────────────────────────────────────────────────────────
 DISPUTE_WINDOW_DAYS = 120
 
-# ── Velocity (Redis TTL in seconds) ──────────────────────────────────
+# ── Velocity (window sizes in seconds) ──────────────────────────────────
 VELOCITY_WINDOW_1M = 60
 VELOCITY_WINDOW_10M = 600
 VELOCITY_WINDOW_1H = 3600

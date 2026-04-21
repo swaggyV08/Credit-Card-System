@@ -10,8 +10,8 @@ from uuid import UUID
 from app.core.jwt import decode_access_token, create_access_token
 from app.api.deps import get_db
 from app.core.rbac import require, AuthenticatedPrincipal
-from app.schemas.base import envelope_success
-from app.schemas.responses import CIFStageResponse, CIFSubmitResponse, KYCUploadResponse
+from app.schemas.base import envelope_success, ResponseEnvelope
+from app.schemas.responses import CIFStageResponse, CIFSubmitResponse, KYCUploadResponse, MessageResponse, SetPinResponse
 from app.core.app_error import AppError
 from app.models.auth import User
 from app.schemas.auth import (
@@ -47,7 +47,6 @@ from app.models.enums import KYCState,Country, PrimaryJurisdiction, DocumentCate
 from app.core.security import hash_value
 from app.core.compliance import BLACKLISTED_COUNTRIES
 from app.admin.models.card_product import CardBillingConfiguration
-from app.admin.schemas.card_issuance import CustomerCreditAccountResponse
 from app.services.card_management_service import CardManagementService
 from typing import Optional
 
@@ -143,10 +142,10 @@ def save_cif_unified(
             db.add(profile)
 
         data = request.Personal_details
-        try:
-            dob = data.date_of_birth.to_date()
-        except ValueError:
-            raise AppError(code="INVALID_DATE_FORMAT", message="Unparseable date of birth", http_status=400)
+        dob = data.date_of_birth
+            
+        if profile.date_of_birth is not None and profile.date_of_birth != dob:
+            raise AppError(code="INVALID_DATE_OF_BIRTH", message="different date of birth in registeration error", http_status=400)
 
         now = datetime.now(timezone.utc).date()
         if dob > now:
@@ -342,6 +341,7 @@ def save_cif_unified(
 @router.get(
     "/cif/summary",
     summary="Get Consolidated CIF Summary",
+    response_model=ResponseEnvelope[CIFSummaryResponse],
     dependencies=[Depends(require("cif:read"))]
 )
 def get_cif_summary(
@@ -570,17 +570,8 @@ async def conduct_kyc(
     user.is_kyc_completed = True
     profile.kyc_state = KYCState.COMPLETED
 
-    # Auto-transition credit card applications
-    from app.admin.models.card_issuance import CreditCardApplication
-    from app.models.enums import ApplicationStatus
-    
-    submitted_apps = db.query(CreditCardApplication).filter(
-        CreditCardApplication.user_id == user.id,
-        CreditCardApplication.application_status == ApplicationStatus.SUBMITTED
-    ).all()
-    
-    for app in submitted_apps:
-        app.application_status = ApplicationStatus.KYC_REVIEW
+    # Auto-transition credit card applications no longer needed here.
+    # The application proceeds to evaluation upon admin command.
 
     db.commit()
 
@@ -601,6 +592,7 @@ from typing import Union, List
 @router.get(
     "/{credit_account_id}",
     summary="Get Consolidated Customer Data",
+    response_model=ResponseEnvelope[Union[UserProfileResponse, List[CustomerCardResponse], CreditAccountResponse]],
     dependencies=[Depends(require("customer:read"))]
 )
 def get_customer_data(
@@ -613,6 +605,10 @@ def get_customer_data(
     Consolidated GET endpoint to retrieve customer data.
     """
     user = get_current_user(db, principal.user_id)
+    profile = db.query(CustomerProfile).filter(CustomerProfile.user_id == user.id).first()
+    if not profile:
+        raise AppError(code="PROFILE_NOT_FOUND", message="Customer Profile not found.", http_status=404)
+
     # 1. Verify account ownership
     account = db.query(CreditAccount).filter(
         CreditAccount.id == credit_account_id,
@@ -627,10 +623,6 @@ def get_customer_data(
         )
 
     if command == "profile":
-        profile = db.query(CustomerProfile).filter(CustomerProfile.user_id == user.id).first()
-        if not profile:
-            raise AppError(code="PROFILE_NOT_FOUND", message="Customer Profile not found.", http_status=404)
-        
         payload = UserProfileResponse(
             user_id=user.id,
             email=user.email,
@@ -649,32 +641,31 @@ def get_customer_data(
         cards = db.query(Card).join(CreditAccount).filter(CreditAccount.user_id == user.id).all()
         payload = [
             CustomerCardResponse(
-                id=c.id,
+                card_id=c.id,
                 card_readable_id=c.readable_id,
+                credit_account_id=c.credit_account_id,
+                card_product_name=c.credit_account.credit_product.product_name,
                 card_type=c.card_type,
                 pan_masked=c.pan_masked,
                 expiry_date_masked=c.expiry_date_masked,
                 cvv_masked=c.cvv_masked,
                 card_status=c.card_status,
                 issued_at=c.issued_at,
+                activation_date=c.activation_date,
                 international_usage_enabled=c.international_usage_enabled,
                 ecommerce_enabled=c.ecommerce_enabled,
-                atm_enabled=c.atm_enabled
+                atm_enabled=c.atm_enabled,
+                card_holder_name=f"{profile.first_name} {profile.last_name}",
+                card_network=c.card_product.card_network.value if hasattr(c.card_product.card_network, 'value') else str(c.card_product.card_network),
+                card_variant=c.card_product.card_variant.value if hasattr(c.card_product.card_variant, 'value') else str(c.card_product.card_variant),
+                account_currency=c.credit_account.account_currency
             ) for c in cards
         ]
         return envelope_success([p.model_dump(mode='json') for p in payload])
 
     elif command == "credit_account":
         # Details for the specific credit account in the path
-        payload = CustomerCreditAccountResponse(
-            credit_account_id=account.id,
-            user_id=account.user_id,
-            credit_limit=account.credit_limit,
-            available_limit=account.available_limit,
-            outstanding_amount=account.outstanding_amount,
-            account_status=account.account_status.value if hasattr(account.account_status, "value") else str(account.account_status),
-            opened_at=account.opened_at
-        )
+        payload = CreditAccountResponse.model_validate(account)
         return envelope_success(payload.model_dump(mode='json'))
 
     else:
@@ -690,6 +681,7 @@ def get_customer_data(
 @router.post(
     "/cards/{card_id}/set-pin",
     summary="Set or update PIN",
+    response_model=SetPinResponse,
     dependencies=[Depends(require("customer:set_pin"))]
 )
 def set_card_pin(

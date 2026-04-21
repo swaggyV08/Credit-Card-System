@@ -19,6 +19,7 @@ import uuid
 from app.db.session import get_db
 from app.models.auth import User, AuthCredential
 from app.models.customer import OTPCode, OTPPurpose, CustomerProfile
+from app.models.token_blacklist import BlacklistedToken
 from app.models.admin import Admin
 from app.schemas.auth import (
     CreateRegistrationRequest,
@@ -38,7 +39,7 @@ from app.core.validators import generate_znbnq_id, generate_znbad_id, normalize_
 from app.schemas.base import envelope_success
 from app.schemas.responses import (
     RegistrationResponse, UserLoginResponse, AdminLoginResponse,
-    PasswordResetResponse, OTPResponse, AddAdminResponse
+    PasswordResetResponse, OTPResponse, AddAdminResponse, LogoutResponse
 )
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -46,10 +47,8 @@ admin_router = APIRouter(prefix="/admins", tags=["Admin: Creation"])
 
 
 # ===================================================================
-# STEP 1 — CREATE REGISTRATION (public, no auth required)
-# ===================================================================
 @router.post(
-    "/registrations",
+    "/register",
     status_code=status.HTTP_201_CREATED,
     response_model=RegistrationResponse,
     summary="Step 1: Create user registration",
@@ -67,102 +66,52 @@ def create_registration(
     db: Session = Depends(get_db),
 ):
     """Create a new user registration with a sequential ZNBNQ user ID."""
-    if data.password != data.confirm_password:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "PASSWORD_MISMATCH", "message": "Passwords do not match"}
-        )
-
-    try:
-        validate_password_rules(data.password)
-    except ValueError as e:
-        err_str = str(e)
-        if ":" in err_str:
-            code, message = err_str.split(":", 1)
-            raise HTTPException(
-                status_code=422,
-                detail={"code": code.strip(), "message": message.strip()}
-            )
-        raise HTTPException(
-            status_code=422,
-            detail={"code": "INVALID_PASSWORD", "message": err_str}
-        )
-
     existing_user = db.execute(
         select(User).where(User.email == data.email)
     ).scalar_one_or_none()
 
     if existing_user:
-        if existing_user.status == "ACTIVE":
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "ALREADY_REGISTERED",
-                    "message": "Email already registered. Please login."
-                }
-            )
-        else:
-            # Re-use existing unverified user
-            user = existing_user
-            user.full_name = data.full_name
-            user.country_code = data.contact.country_code
-            user.phone_number = data.contact.phone_number
-
-            profile = db.execute(
-                select(CustomerProfile).where(
-                    CustomerProfile.user_id == user.id
-                )
-            ).scalar_one_or_none()
-            if profile:
-                profile.date_of_birth = data.date_of_birth
-            else:
-                profile = CustomerProfile(
-                    user_id=user.id, date_of_birth=data.date_of_birth
-                )
-                db.add(profile)
-
-            credentials = db.execute(
-                select(AuthCredential).where(
-                    AuthCredential.user_id == user.id
-                )
-            ).scalar_one_or_none()
-            if credentials:
-                credentials.password_hash = hash_value(data.password)
-            else:
-                credentials = AuthCredential(
-                    user_id=user.id,
-                    password_hash=hash_value(data.password)
-                )
-                db.add(credentials)
-            db.flush()
-    else:
-        # Generate permanent ZNBNQ sequential ID
-        user_id_str = generate_znbnq_id(db)
-        user = User(
-            id=user_id_str,
-            email=data.email,
-            full_name=data.full_name,
-            country_code=data.contact.country_code,
-            phone_number=data.contact.phone_number,
-            status="UNVERIFIED",
-            is_cif_completed=False,
-            is_kyc_completed=False,
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": 409,
+                "field": "email",
+                "message": "An account with this email already exists.",
+                "flat": True
+            }
         )
-        db.add(user)
-        db.flush()
 
-        profile = CustomerProfile(
-            user_id=user.id,
-            date_of_birth=data.date_of_birth,
-        )
-        db.add(profile)
+    # Generate permanent ZNBNQ sequential ID
+    user_id_str = generate_znbnq_id(db)
+    
+    dob_date = data.date_of_birth
+    full_name_str = f"{data.full_name.first_name} {data.full_name.last_name}"
 
-        credentials = AuthCredential(
-            user_id=user.id,
-            password_hash=hash_value(data.password),
-        )
-        db.add(credentials)
-        db.flush()
+    user = User(
+        id=user_id_str,
+        email=data.email,
+        full_name=full_name_str,
+        country_code=data.phone.country_code,
+        phone_number=data.phone.number,
+        status="UNVERIFIED",
+        is_cif_completed=False,
+        is_kyc_completed=False,
+    )
+    db.add(user)
+    db.flush()
+
+    profile = CustomerProfile(
+        user_id=user.id,
+        date_of_birth=dob_date,
+    )
+    db.add(profile)
+
+    credentials = AuthCredential(
+        user_id=user.id,
+        password_hash=hash_value(data.password),
+    )
+    db.add(credentials)
+    db.flush()
 
     db.commit()
 
@@ -196,13 +145,13 @@ def unified_login(
         if not admin:
             raise HTTPException(
                 status_code=401,
-                detail={"code": "INVALID_CREDENTIALS", "message": "Invalid email or password"}
+                detail={"message": "Invalid email or password", "flat": True}
             )
 
         if not verify_value(data.password, admin.password_hash):
             raise HTTPException(
                 status_code=401,
-                detail={"code": "INVALID_CREDENTIALS", "message": "Invalid email or password"}
+                detail={"message": "Invalid email or password", "flat": True}
             )
 
         role_value = admin.role.value if hasattr(admin.role, "value") else str(admin.role)
@@ -230,13 +179,13 @@ def unified_login(
                 raise HTTPException(
                     status_code=400,
                     detail={
-                        "code": "WRONG_COMMAND_FOR_ROLE",
-                        "message": "Admins must login with command=ADMIN"
+                        "message": "Admins must login with command=ADMIN",
+                        "flat": True
                     }
                 )
             raise HTTPException(
                 status_code=401,
-                detail={"code": "INVALID_CREDENTIALS", "message": "Invalid email or password"}
+                detail={"message": "Invalid email or password", "flat": True}
             )
 
         if user.status != "ACTIVE":
@@ -244,21 +193,23 @@ def unified_login(
                 raise HTTPException(
                     status_code=403,
                     detail={
-                        "code": "ACCOUNT_NOT_VERIFIED",
-                        "message": "Account must be verified with OTP before login"
+                        "code": 403,
+                        "message": "Account must be verified with OTP before login",
+                        "flat": True
                     }
                 )
             if user.status == "BLOCKED":
                 raise HTTPException(
                     status_code=403,
                     detail={
-                        "code": "ACCOUNT_BLOCKED",
-                        "message": "Your account has been blocked due to compliance restrictions"
+                        "code": 403,
+                        "message": "Your account has been blocked due to compliance restrictions",
+                        "flat": True
                     }
                 )
             raise HTTPException(
                 status_code=401,
-                detail={"code": "INVALID_CREDENTIALS", "message": "Account is not active"}
+                detail={"message": "Account is not active", "flat": True}
             )
 
         credentials = db.execute(
@@ -267,7 +218,7 @@ def unified_login(
         if not credentials or not verify_value(data.password, credentials.password_hash):
             raise HTTPException(
                 status_code=401,
-                detail={"code": "INVALID_CREDENTIALS", "message": "Invalid email or password"}
+                detail={"message": "Invalid email or password", "flat": True}
             )
 
         token = create_access_token({
@@ -306,19 +257,20 @@ def unified_login(
         ).first()
         credit_account_id = str(credit_account.id) if credit_account else None
 
-        return envelope_success({
+        res_data = {
             "access_token": token,
             "token_type": "bearer",
             "role": "USER",
             "user_id": user.id,
             "message": f"Welcome {name}".strip(),
-            "is_cif_completed": user.is_cif_completed,
-            "is_kyc_completed": user.is_kyc_completed,
+            "is_cif_completed": getattr(user, 'is_cif_completed', False),
+            "is_kyc_completed": getattr(user, 'is_kyc_completed', False),
             "application_status": app_status,
             "credit_account_id": credit_account_id,
             "login_timestamp_utc": now_utc.isoformat(),
             "login_timestamp_local": now_local.isoformat(),
-        })
+        }
+        return envelope_success(res_data)
 
     else:
         raise HTTPException(
@@ -517,6 +469,7 @@ async def generic_otp_dispatcher(
             expires_at=expires_at,
             user_id=target_id_str,
             email=target_entity.email,
+            linkage_id=data.activation_id if purpose == OTPPurpose.ACTIVATION else None
         )
         db.add(otp_entry)
         db.commit()
@@ -529,8 +482,10 @@ async def generic_otp_dispatcher(
             raise HTTPException(
                 status_code=422,
                 detail={
-                    "code": "UNPROCESSABLE",
-                    "message": "Field 'otp' is mandatory for 'verify'"
+                    "code": 422,
+                    "field": "otp",
+                    "message": "Field 'otp' is mandatory for 'verify'",
+                    "flat": True
                 }
             )
 
@@ -539,7 +494,8 @@ async def generic_otp_dispatcher(
             .where(
                 OTPCode.purpose == purpose,
                 OTPCode.is_used == False,
-                OTPCode.user_id == target_id_str
+                OTPCode.user_id == target_id_str,
+                OTPCode.linkage_id == data.activation_id if purpose == OTPPurpose.ACTIVATION else True
             )
             .order_by(OTPCode.created_at.desc())
         )
@@ -549,8 +505,9 @@ async def generic_otp_dispatcher(
             raise HTTPException(
                 status_code=422,
                 detail={
-                    "code": "INVALID_OTP",
-                    "message": "Invalid or expired OTP"
+                    "code": 422,
+                    "message": "Invalid or expired OTP",
+                    "flat": True
                 }
             )
 
@@ -558,8 +515,9 @@ async def generic_otp_dispatcher(
             raise HTTPException(
                 status_code=422,
                 detail={
-                    "code": "OTP_EXPIRED",
-                    "message": "OTP has expired, please request a new one"
+                    "code": 422,
+                    "message": "OTP has expired, please request a new one",
+                    "flat": True
                 }
             )
 
@@ -567,8 +525,9 @@ async def generic_otp_dispatcher(
             raise HTTPException(
                 status_code=422,
                 detail={
-                    "code": "INVALID_OTP",
-                    "message": "Invalid or expired OTP"
+                    "code": 422,
+                    "message": "Invalid or expired OTP",
+                    "flat": True
                 }
             )
 
@@ -607,8 +566,40 @@ async def generic_otp_dispatcher(
     else:
         raise HTTPException(
             status_code=400,
-            detail={"code": "BAD_REQUEST", "message": "Invalid command"}
+            detail={"code": 400, "message": "Invalid command", "flat": True}
         )
+
+
+# ===================================================================
+# LOGOUT — unified for Users and Admins
+# ===================================================================
+@router.post(
+    "/logout",
+    response_model=LogoutResponse,
+    summary="Unified Logout for Users and Admins",
+    description="Invalidates the current session by blacklisting the JWT JTI.",
+)
+def logout(
+    principal: AuthenticatedPrincipal = Depends(require("auth:logout")),
+    db: Session = Depends(get_db)
+):
+    """
+    Logout the current user or admin.
+    This adds the JTI (JWT ID) to fixed-size blacklist in the DB.
+    """
+    msg = "Account logged out successfully"
+    if not principal.jti:
+        # Fallback if somehow a token without JTI was used
+        return envelope_success({"message": msg})
+
+    # Check if already blacklisted to avoid unique constraint error
+    existing = db.query(BlacklistedToken).filter(BlacklistedToken.jti == principal.jti).first()
+    if not existing:
+        blacklisted = BlacklistedToken(jti=principal.jti)
+        db.add(blacklisted)
+        db.commit()
+
+    return envelope_success({"message": msg})
 
 
 # ===================================================================
@@ -631,22 +622,15 @@ def add_admin(
     if data.password != data.confirm_password:
         raise HTTPException(
             status_code=400,
-            detail={"code": "PASSWORD_MISMATCH", "message": "Password and confirm password do not match. Ensure both fields are identical (byte-for-byte)."}
+            detail={"code": 400, "message": "Passwords do not match.", "flat": True}
         )
 
     try:
         validate_password_rules(data.password)
     except ValueError as e:
-        err_str = str(e)
-        if ":" in err_str:
-            code, message = err_str.split(":", 1)
-            raise HTTPException(
-                status_code=422,
-                detail={"code": code.strip(), "message": message.strip()}
-            )
         raise HTTPException(
-            status_code=422,
-            detail={"code": "INVALID_PASSWORD", "message": err_str}
+            status_code=400,
+            detail={"code": 400, "field": "password", "message": str(e), "flat": True}
         )
 
     existing_admin = db.query(Admin).filter(Admin.email == data.email).first()
@@ -654,8 +638,10 @@ def add_admin(
         raise HTTPException(
             status_code=409,
             detail={
-                "code": "ALREADY_REGISTERED",
-                "message": "Admin with this email already exists"
+                "code": 409,
+                "field": "email",
+                "message": "Admin with this email already exists",
+                "flat": True
             }
         )
 

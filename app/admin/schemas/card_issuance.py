@@ -1,6 +1,6 @@
 import uuid
 from uuid import UUID
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Literal
 from datetime import datetime, date
 from pydantic import BaseModel, Field, ConfigDict, field_validator, condecimal, model_validator
 from app.models.enums import (
@@ -95,33 +95,8 @@ class AdminKYCReviewRequest(BaseModel):
     notes: Optional[str] = None
 
 class CreditAccountManualConfig(BaseModel):
-    credit_limit: condecimal(max_digits=13, decimal_places=3) = Field(..., gt=0, json_schema_extra={"example": "0000000000.000"})
-    cash_advance_limit: condecimal(max_digits=13, decimal_places=3) = Field(..., ge=0, json_schema_extra={"example": "0000000000.000"})
-    billing_cycle_id: str = Field(
-        ..., 
-        pattern=r'^CYCLE_\d{2}$',
-        description=(
-            "Billing cycle identifier. Maps to the day of the month when statement is generated.\n"
-            "- **CYCLE_01**: 1st of month\n"
-            "- **CYCLE_05**: 5th of month\n"
-            "- **CYCLE_10**: 10th of month\n"
-            "- **CYCLE_15**: 15th of month\n"
-            "- **CYCLE_20**: 20th of month\n"
-            "- **CYCLE_25**: 25th of month\n"
-            "- **CYCLE_28**: 28th of month"
-        )
-    )
-    
-    overlimit_allowed: bool = False
-    overlimit_percentage: condecimal(max_digits=13, decimal_places=3) = Field(Decimal("0.0"), ge=0, le=100, json_schema_extra={"example": "0000000000.000"})
+    application_status: Literal["Approve", "Reject"] = Field(..., description="Approve or Reject the application (admin override)")
 
-    autopay_enabled: bool = False
-    autopay_type: Optional[AutoPayType] = None
-
-    @field_validator("credit_limit", "cash_advance_limit", "overlimit_percentage")
-    @classmethod
-    def validate_nums(cls, v):
-        return validate_currency_10_3(v)
 
 class CreditSummary(BaseModel):
     total_credit_limit: condecimal(max_digits=13, decimal_places=3) = Field(..., json_schema_extra={"example": "0000000000.000"})
@@ -265,4 +240,4 @@ class CustomerCardResponse(BaseModel):
     card_variant: str
     account_currency: str = "INR"
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)

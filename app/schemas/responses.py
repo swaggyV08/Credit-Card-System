@@ -8,10 +8,17 @@ from __future__ import annotations
 
 from datetime import datetime, date
 from decimal import Decimal
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Literal, Union
 from uuid import UUID
 
 from pydantic import BaseModel, Field, ConfigDict
+
+class ErrorResponse(BaseModel):
+    error_code: str = Field(..., description="Application-specific error code")
+    message: str = Field(..., description="Human-readable error message")
+    status_code: int = Field(..., description="HTTP status code")
+    timestamp: str = Field(..., description="ISO-8601 timestamp")
+    path: str = Field(..., description="Request path")
 
 
 # =====================================================
@@ -60,6 +67,35 @@ class RegistrationResponse(BaseModel):
         }
     })
 
+# =====================================================
+# AUTH — LOGOUT
+# =====================================================
+class LogoutData(BaseModel):
+    """Logout success response data."""
+    message: str = Field(..., json_schema_extra={"example": "Account logged out successfully"})
+
+class LogoutResponse(BaseModel):
+    """Full envelope response for logout."""
+    status: str = Field(..., json_schema_extra={"example": "success"})
+    data: LogoutData
+    meta: MetaResponse
+    errors: List[ErrorDetailResponse] = []
+
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "status": "success",
+            "data": {
+                "message": "Account logged out successfully"
+            },
+            "meta": {
+                "request_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                "timestamp": "2026-04-08T10:30:00.000000+00:00",
+                "api_version": "1.0.0"
+            },
+            "errors": []
+        }
+    })
+
 
 # =====================================================
 # AUTH — LOGIN (USER)
@@ -68,7 +104,7 @@ class UserLoginData(BaseModel):
     """Login response data for USER role."""
     access_token: str = Field(..., json_schema_extra={"example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."})
     token_type: str = Field(..., json_schema_extra={"example": "bearer"})
-    role: str = Field(..., json_schema_extra={"example": "USER"})
+    role: Literal["USER"] = Field(..., json_schema_extra={"example": "USER"})
     user_id: str = Field(..., json_schema_extra={"example": "ZNBNQ000001"})
     message: str = Field(..., json_schema_extra={"example": "Welcome Vishnu Prasad"})
     is_cif_completed: bool = Field(..., json_schema_extra={"example": True})
@@ -118,7 +154,7 @@ class AdminLoginData(BaseModel):
     """Login response data for admin roles."""
     access_token: str = Field(..., json_schema_extra={"example": "eyJhbGciOiJIUzI1NiJ9..."})
     token_type: str = Field(..., json_schema_extra={"example": "bearer"})
-    role: str = Field(..., json_schema_extra={"example": "ADMIN"})
+    role: Literal["ADMIN", "MANAGER", "SALES", "SUPERADMIN"] = Field(..., json_schema_extra={"example": "ADMIN"})
     employee_id: Optional[str] = Field(None, json_schema_extra={"example": "ZNBAD000001"})
     message: str = Field(..., json_schema_extra={"example": "Welcome ADMIN: Rajesh Kumar"})
     login_timestamp_utc: str = Field(..., json_schema_extra={"example": "2026-04-08T10:30:00+00:00"})
@@ -261,8 +297,8 @@ class KYCUploadResponse(BaseModel):
 # =====================================================
 class ApplicationSubmitData(BaseModel):
     message: str = Field(..., json_schema_extra={"example": "Application submitted successfully and passed initial eligibility checks."})
-    application_id: str = Field(..., json_schema_extra={"example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"})
-    status: str = Field(..., json_schema_extra={"example": "SUBMITTED"})
+    application_id: Optional[str] = Field(None, json_schema_extra={"example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"})
+    status: Optional[str] = Field(None, json_schema_extra={"example": "SUBMITTED"})
 
 class ApplicationSubmitResponse(BaseModel):
     status: str = Field(..., json_schema_extra={"example": "success"})
@@ -271,11 +307,18 @@ class ApplicationSubmitResponse(BaseModel):
     errors: List[ErrorDetailResponse] = []
 
 
+from app.schemas.base import PaginationSchema
+from app.admin.schemas.card_issuance import CreditCardApplicationSummary, CreditCardApplicationResponse
+from app.admin.schemas.credit_product import CreditProductSummaryResponse
+from app.schemas.card_product import CardProductSummaryResponse
+
 class ApplicationListData(BaseModel):
-    items: List[Any] = Field(..., json_schema_extra={"example": []})
-    total: int = Field(..., json_schema_extra={"example": 15})
-    page: int = Field(..., json_schema_extra={"example": 1})
-    page_size: int = Field(..., json_schema_extra={"example": 20})
+    items: Optional[List[Union[CreditCardApplicationResponse, CreditCardApplicationSummary]]] = None
+    pagination: Optional[PaginationSchema] = None
+    # Support for legacy/flat temporarily or by_id
+    total: Optional[int] = None
+    page: Optional[int] = None
+    page_size: Optional[int] = None
 
 class ApplicationListResponse(BaseModel):
     status: str = Field(..., json_schema_extra={"example": "success"})
@@ -345,7 +388,6 @@ class CardProductCreateResponse(BaseModel):
 
 class CardProductApproveData(BaseModel):
     card_product_id: str = Field(..., json_schema_extra={"example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"})
-    credit_product_id: str = Field(..., json_schema_extra={"example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"})
     effective_from: Optional[str] = Field(None, json_schema_extra={"example": "2026-04-08T10:30:00+00:00"})
     effective_to: Optional[str] = Field(None, json_schema_extra={"example": "2027-04-08T10:30:00+00:00"})
     created_at: Optional[str] = Field(None, json_schema_extra={"example": "2026-04-08T10:30:00+00:00"})
@@ -389,10 +431,12 @@ class UserListResponse(BaseModel):
 # CREDIT ACCOUNTS
 # =====================================================
 class CreditAccountListData(BaseModel):
-    page: int = Field(..., json_schema_extra={"example": 1})
-    limit: int = Field(..., json_schema_extra={"example": 20})
-    total_records: int = Field(..., json_schema_extra={"example": 5})
-    accounts: List[Any] = []
+    accounts: Optional[List[Any]] = []
+    pagination: Optional[PaginationSchema] = None
+    # Support for legacy/flat
+    page: Optional[int] = None
+    limit: Optional[int] = None
+    total_records: Optional[int] = None
 
 class CreditAccountListResponse(BaseModel):
     status: str = Field(..., json_schema_extra={"example": "success"})
@@ -455,11 +499,14 @@ class TransactionCreateData(BaseModel):
     transaction_id: str = Field(..., json_schema_extra={"example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"})
     auth_code: Optional[str] = Field(None, json_schema_extra={"example": "AUTH7829"})
     status: str = Field(..., json_schema_extra={"example": "AUTHORIZED"})
-    amount: float = Field(..., json_schema_extra={"example": 2500.00})
-    currency: str = Field(..., json_schema_extra={"example": "INR"})
-    available_credit: float = Field(..., json_schema_extra={"example": 497500.00})
+    amount: Decimal = Field(..., description="The transaction amount.")
+    currency: str = Field(..., description="The transaction currency code.")
+    is_foreign: bool = Field(False, description="True if the transaction was foreign.")
+    foreign_fee_applied: Decimal = Field(Decimal("0.0"), description="The 3% foreign transaction fee applied, if any.")
+    available_credit_limit: Decimal = Field(..., description="The available credit limit after the transaction.")
     hold_id: Optional[str] = Field(None, json_schema_extra={"example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"})
     hold_expiry: Optional[str] = Field(None, json_schema_extra={"example": "2026-04-15T10:30:00+00:00"})
+    created_at: str = Field(..., json_schema_extra={"example": "2026-04-13T10:30:00+00:00"})
 
 class TransactionCreateResponse(BaseModel):
     status: str = Field(..., json_schema_extra={"example": "success"})
@@ -476,9 +523,10 @@ class TransactionCreateResponse(BaseModel):
                 "status": "AUTHORIZED",
                 "amount": 2500.00,
                 "currency": "INR",
-                "available_credit": 497500.00,
+                "available_credit_limit": 497500.00,
                 "hold_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                "hold_expiry": "2026-04-15T10:30:00+00:00"
+                "hold_expiry": "2026-04-15T10:30:00+00:00",
+                "created_at": "2026-04-13T10:30:00+00:00"
             },
             "meta": {
                 "request_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
@@ -585,23 +633,6 @@ class PaymentListResponse(BaseModel):
     errors: List[ErrorDetailResponse] = []
 
 
-# =====================================================
-# CARD CONTROLS
-# =====================================================
-class CardControlsData(BaseModel):
-    card_id: str = Field(..., json_schema_extra={"example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"})
-    daily_limit: Optional[float] = Field(None, json_schema_extra={"example": 50000.00})
-    monthly_limit: Optional[float] = Field(None, json_schema_extra={"example": 500000.00})
-    online_enabled: bool = Field(..., json_schema_extra={"example": True})
-    contactless_enabled: bool = Field(..., json_schema_extra={"example": True})
-    atm_enabled: bool = Field(..., json_schema_extra={"example": True})
-
-class CardControlsResponse(BaseModel):
-    status: str = Field(..., json_schema_extra={"example": "success"})
-    data: CardControlsData
-    meta: MetaResponse
-    errors: List[ErrorDetailResponse] = []
-
 
 # =====================================================
 # BILLING
@@ -640,17 +671,6 @@ class StatementListResponse(BaseModel):
     errors: List[ErrorDetailResponse] = []
 
 
-class FraudFlagListData(BaseModel):
-    data: List[Any] = []
-    meta: dict = Field(..., json_schema_extra={"example": {"total": 2, "page": 1, "page_size": 20}})
-
-class FraudFlagListResponse(BaseModel):
-    status: str = Field(..., json_schema_extra={"example": "success"})
-    data: FraudFlagListData
-    meta: MetaResponse
-    errors: List[ErrorDetailResponse] = []
-
-
 # =====================================================
 # GENERIC MESSAGE RESPONSE (reusable)
 # =====================================================
@@ -662,3 +682,236 @@ class MessageResponse(BaseModel):
     data: MessageData
     meta: MetaResponse
     errors: List[ErrorDetailResponse] = []
+
+
+# =====================================================
+# CIF SUMMARY
+# =====================================================
+class CIFSummaryData(BaseModel):
+    user_id: str = Field(..., json_schema_extra={"example": "ZNBNQ000001"})
+    is_cif_completed: bool = Field(..., json_schema_extra={"example": True})
+    is_kyc_completed: bool = Field(..., json_schema_extra={"example": True})
+    personal_details: Optional[Any] = Field(None, json_schema_extra={"example": {"first_name": "Vishnu", "last_name": "Prasad", "date_of_birth": "1990-01-01"}})
+    contact_details: Optional[Any] = Field(None, json_schema_extra={"example": {"email": "vishnu@example.com", "phone": "+919876543210"}})
+    address_details: Optional[Any] = Field(None, json_schema_extra={"example": {"line1": "123 Main St", "city": "Mumbai", "state": "Maharashtra", "pincode": "400001"}})
+    identity_details: Optional[Any] = Field(None, json_schema_extra={"example": {"pan_number": "ABCDE1234F", "aadhaar_masked": "XXXX-XXXX-1234"}})
+
+class CIFSummaryResponse(BaseModel):
+    status: str = Field(..., json_schema_extra={"example": "success"})
+    data: CIFSummaryData
+    meta: MetaResponse
+    errors: List[ErrorDetailResponse] = []
+
+
+# =====================================================
+# SET PIN
+# =====================================================
+class SetPinData(BaseModel):
+    message: str = Field(..., json_schema_extra={"example": "PIN set successfully"})
+    card_id: str = Field(..., json_schema_extra={"example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"})
+
+class SetPinResponse(BaseModel):
+    status: str = Field(..., json_schema_extra={"example": "success"})
+    data: SetPinData
+    meta: MetaResponse
+    errors: List[ErrorDetailResponse] = []
+
+
+# =====================================================
+# PROCESS APPLICATION (Evaluate/Configure)
+# =====================================================
+class ProcessApplicationData(BaseModel):
+    message: Optional[str] = Field(None, json_schema_extra={"example": "Application manually rejected by admin"})
+    application_id: Optional[str] = Field(None, json_schema_extra={"example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"})
+    application_status: Optional[str] = Field(None, json_schema_extra={"example": "REJECTED"})
+    credit_account_id: Optional[str] = Field(None, json_schema_extra={"example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"})
+    readable_id: Optional[str] = Field(None, json_schema_extra={"example": "ACC-000001"})
+    user_id: Optional[str] = Field(None, json_schema_extra={"example": "ZNBNQ000001"})
+    credit_limit: Optional[str] = Field(None, json_schema_extra={"example": "100000.000"})
+    available_limit: Optional[str] = Field(None, json_schema_extra={"example": "100000.000"})
+    outstanding_amount: Optional[str] = Field(None, json_schema_extra={"example": "0.000"})
+    account_status: Optional[str] = Field(None, json_schema_extra={"example": "ACTIVE"})
+
+class ProcessApplicationResponse(BaseModel):
+    status: str = Field(..., json_schema_extra={"example": "success"})
+    data: ProcessApplicationData
+    meta: MetaResponse
+    errors: List[ErrorDetailResponse] = []
+
+
+# =====================================================
+# CREDIT PRODUCTS — GET (Unified)
+# =====================================================
+class CreditProductSummaryItem(BaseModel):
+    product_id: Optional[str] = Field(None, json_schema_extra={"example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"})
+    product_code: Optional[str] = Field(None, json_schema_extra={"example": "cp-12345"})
+    product_name: Optional[str] = Field(None, json_schema_extra={"example": "ZBanque Gold Card"})
+    status: Optional[str] = Field(None, json_schema_extra={"example": "ACTIVE"})
+
+class CreditProductGetData(BaseModel):
+    items: Optional[List[CreditProductSummaryItem]] = None
+    pagination: Optional[PaginationSchema] = None
+    # Detail fields (by_id)
+    product_id: Optional[str] = None
+    product_code: Optional[str] = None
+    product_name: Optional[str] = None
+    product_category: Optional[str] = None
+    product_version: Optional[int] = None
+    status: Optional[str] = None
+    limits: Optional[Any] = None
+    interest_framework: Optional[Any] = None
+    fees: Optional[Any] = None
+    eligibility_rules: Optional[Any] = None
+    compliance_metadata: Optional[Any] = None
+    accounting_mapping: Optional[Any] = None
+    governance: Optional[Any] = None
+
+class CreditProductGetResponse(BaseModel):
+    status: str = Field(..., json_schema_extra={"example": "success"})
+    data: CreditProductGetData
+    meta: MetaResponse
+    errors: List[ErrorDetailResponse] = []
+
+
+# =====================================================
+# CARD PRODUCTS — GET (Unified)
+# =====================================================
+class CardProductSummaryItem(BaseModel):
+    card_product_id: Optional[str] = Field(None, json_schema_extra={"example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"})
+    credit_product_id: Optional[str] = Field(None, json_schema_extra={"example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"})
+    card_network: Optional[str] = Field(None, json_schema_extra={"example": "VISA"})
+    card_variant: Optional[str] = Field(None, json_schema_extra={"example": "PLATINUM"})
+    status: Optional[str] = Field(None, json_schema_extra={"example": "ACTIVE"})
+
+class CardProductPaginationInfo(BaseModel):
+    total: int = Field(..., json_schema_extra={"example": 1})
+    page: int = Field(..., json_schema_extra={"example": 1})
+    page_size: int = Field(..., json_schema_extra={"example": 20})
+    total_pages: int = Field(..., json_schema_extra={"example": 1})
+
+class CardProductGetData(BaseModel):
+    items: Optional[List[CardProductSummaryItem]] = None
+    pagination: Optional[PaginationSchema] = None
+    # Detail fields (by_id)
+    card_product_id: Optional[str] = None
+    credit_product_id: Optional[str] = None
+    card_network: Optional[str] = None
+    card_variant: Optional[str] = None
+    status: Optional[str] = None
+    # Add other fields as Any to be safe for diverse Detail responses
+    details: Optional[Any] = None
+    config: Optional[Any] = None
+
+class CardProductGetResponse(BaseModel):
+    status: str = Field(..., json_schema_extra={"example": "success"})
+    data: CardProductGetData
+    meta: MetaResponse
+    errors: List[ErrorDetailResponse] = []
+
+
+# =====================================================
+# USER MANAGEMENT — GET (Unified)
+# =====================================================
+class UserSummaryItem(BaseModel):
+    user_id: str = Field(..., json_schema_extra={"example": "ZNBNQ000001"})
+    name: Optional[str] = Field(None, json_schema_extra={"example": "Vishnu Prasad"})
+    email: Optional[str] = Field(None, json_schema_extra={"example": "vishnu@example.com"})
+    is_cif_completed: bool = Field(False, json_schema_extra={"example": True})
+    is_kyc_completed: bool = Field(False, json_schema_extra={"example": True})
+    application_status: Optional[str] = Field(None, json_schema_extra={"example": "APPROVED"})
+    credit_account_id: Optional[str] = Field(None, json_schema_extra={"example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"})
+    created_at: Optional[str] = Field(None, json_schema_extra={"example": "2026-04-08T10:30:00+00:00"})
+
+class UserGetData(BaseModel):
+    items: Optional[List[UserSummaryItem]] = Field(None)
+    pagination: Optional[Any] = None
+    # by_id fields (returned flat)
+    user_id: Optional[str] = Field(None, json_schema_extra={"example": "ZNBNQ000001"})
+    email: Optional[str] = Field(None, json_schema_extra={"example": "vishnu@example.com"})
+    phone_number: Optional[str] = Field(None, json_schema_extra={"example": "+919876543210"})
+    name: Optional[str] = Field(None, json_schema_extra={"example": "Vishnu Prasad"})
+    is_cif_completed: Optional[bool] = Field(None, json_schema_extra={"example": True})
+    total_credit_accounts: Optional[int] = Field(None, json_schema_extra={"example": 1})
+    total_cards: Optional[int] = Field(None, json_schema_extra={"example": 2})
+    credit_accounts: Optional[List[Any]] = None
+
+class UserGetResponse(BaseModel):
+    status: str = Field(..., json_schema_extra={"example": "success"})
+    data: UserGetData
+    meta: MetaResponse
+    errors: List[ErrorDetailResponse] = []
+
+
+# =====================================================
+# CARD ACTIVATION
+# =====================================================
+class CardActivationData(BaseModel):
+    card_id: Optional[str] = Field(None, json_schema_extra={"example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"})
+    card_status: Optional[str] = Field(None, json_schema_extra={"example": "ACTIVE"})
+    message: Optional[str] = Field(None, json_schema_extra={"example": "Card activated successfully"})
+    activation_id: Optional[str] = Field(None, json_schema_extra={"example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"})
+    activated_at: Optional[str] = Field(None, json_schema_extra={"example": "2026-04-08T10:30:00+00:00"})
+
+class CardActivationResponse(BaseModel):
+    status: str = Field(..., json_schema_extra={"example": "success"})
+    data: CardActivationData
+    meta: MetaResponse
+    errors: List[ErrorDetailResponse] = []
+
+
+# =====================================================
+# CARD DETAILS — GET
+# =====================================================
+class CardDetailsData(BaseModel):
+    id: Optional[str] = Field(None, json_schema_extra={"example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"})
+    card_number: Optional[str] = Field(None, json_schema_extra={"example": "XXXX-XXXX-XXXX-4321"})
+    card_network: Optional[str] = Field(None, json_schema_extra={"example": "VISA"})
+    card_variant: Optional[str] = Field(None, json_schema_extra={"example": "PLATINUM"})
+    status: Optional[str] = Field(None, json_schema_extra={"example": "ACTIVE"})
+    is_virtual: Optional[bool] = Field(None, json_schema_extra={"example": False})
+    is_contactless_enabled: Optional[bool] = Field(None, json_schema_extra={"example": True})
+    is_international_enabled: Optional[bool] = Field(None, json_schema_extra={"example": False})
+    daily_spend_limit: Optional[str] = Field(None, json_schema_extra={"example": "100000.00"})
+    expiry_date: Optional[str] = Field(None, json_schema_extra={"example": "12/29"})
+
+class CardDetailsResponse(BaseModel):
+    status: str = Field(..., json_schema_extra={"example": "success"})
+    data: CardDetailsData
+    meta: MetaResponse
+    errors: List[ErrorDetailResponse] = []
+
+
+# =====================================================
+# HEALTH CHECK
+# =====================================================
+class HealthCheckData(BaseModel):
+    application: str = Field(..., json_schema_extra={"example": "ZBANQUe Credit Card System"})
+    version: Optional[str] = Field(None, json_schema_extra={"example": "1.0.0"})
+    status: str = Field(..., json_schema_extra={"example": "running"})
+
+class HealthCheckResponse(BaseModel):
+    status: str = Field(..., json_schema_extra={"example": "success"})
+    data: HealthCheckData
+    meta: MetaResponse
+    errors: List[ErrorDetailResponse] = []
+
+
+# =====================================================
+# CREDIT PRODUCTS CATALOG — User (Unified)
+# =====================================================
+class CreditProductCatalogResponse(BaseModel):
+    status: str = Field(..., json_schema_extra={"example": "success"})
+    data: Union[CreditProductSummaryResponse, CreditProductGetData]
+    meta: MetaResponse
+    errors: List[ErrorDetailResponse] = []
+
+
+# =====================================================
+# CARD PRODUCTS CATALOG — User (Unified)
+# =====================================================
+class CardProductCatalogResponse(BaseModel):
+    status: str = Field(..., json_schema_extra={"example": "success"})
+    data: Union[CardProductSummaryResponse, CardProductGetData]
+    meta: MetaResponse
+    errors: List[ErrorDetailResponse] = []
+

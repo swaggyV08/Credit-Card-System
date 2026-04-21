@@ -49,6 +49,7 @@ ROLE_PERMISSIONS: dict[str, set[Role]] = {
     "auth:login":                 {Role.USER},
     "auth:password_reset":        {Role.USER},
     "auth:otp":                   {Role.USER},
+    "auth:logout":                {Role.USER, Role.ADMIN, Role.SUPERADMIN, Role.MANAGER, Role.SALES},
     "admin:login":                {Role.SUPERADMIN, Role.ADMIN, Role.MANAGER, Role.SALES},
     "admin:create":               {Role.SUPERADMIN},
 
@@ -107,6 +108,16 @@ ROLE_PERMISSIONS: dict[str, set[Role]] = {
 
     # ── Refunds ──────────────────────────────────────────────────
     "refund:process":             {Role.ADMIN, Role.MANAGER, Role.SUPERADMIN},
+
+    # ── Jobs ─────────────────────────────────────────────────────
+    "job:clearing":               {Role.ADMIN, Role.SUPERADMIN},
+    "job:billing":                {Role.ADMIN, Role.SUPERADMIN},
+    "job:statements":             {Role.ADMIN, Role.SUPERADMIN},
+    "job:settlements":            {Role.ADMIN, Role.SUPERADMIN},
+
+    # ── Fees ─────────────────────────────────────────────────────
+    "fee:assess":                 {Role.ADMIN, Role.MANAGER, Role.SUPERADMIN},
+    "fee:waive":                  {Role.ADMIN, Role.MANAGER, Role.SUPERADMIN},
 
     # ── Statements ───────────────────────────────────────────────
     "statement:read":             {Role.USER, Role.MANAGER, Role.ADMIN, Role.SUPERADMIN},
@@ -194,7 +205,7 @@ def require(permission: str):
             if blacklisted:
                 raise HTTPException(
                     status_code=403,
-                    detail={"code": "ACCOUNT_BLOCKED", "message": "Session invalidated. Your account is blocked."}
+                    detail={"code": "FORBIDDEN", "message": "Account logged out successfully"}
                 )
 
         role = _resolve_role(payload)

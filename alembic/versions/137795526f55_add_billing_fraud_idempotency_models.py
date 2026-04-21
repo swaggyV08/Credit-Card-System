@@ -31,18 +31,7 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['card_id'], ['card.id'], ),
     sa.PrimaryKeyConstraint('key')
     )
-    op.create_table('fraud_flags',
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('transaction_id', sa.UUID(), nullable=False),
-    sa.Column('card_id', sa.UUID(), nullable=False),
-    sa.Column('rule', sa.String(length=20), nullable=False),
-    sa.Column('action', sa.String(length=10), nullable=False),
-    sa.Column('details', sa.JSON(), nullable=True),
-    sa.Column('flagged_at', sa.DateTime(timezone=True), nullable=False),
-    sa.ForeignKeyConstraint(['card_id'], ['card.id'], ),
-    sa.ForeignKeyConstraint(['transaction_id'], ['transactions.id'], ),
-    sa.PrimaryKeyConstraint('id')
-    )
+
     op.drop_index(op.f('ix_refunds_original_txn_id'), table_name='refunds')
     op.drop_index(op.f('ix_refunds_refund_txn_id'), table_name='refunds')
     op.drop_table('refunds')
@@ -152,6 +141,6 @@ def downgrade() -> None:
     )
     op.create_index(op.f('ix_refunds_refund_txn_id'), 'refunds', ['refund_txn_id'], unique=False)
     op.create_index(op.f('ix_refunds_original_txn_id'), 'refunds', ['original_txn_id'], unique=False)
-    op.drop_table('fraud_flags')
+
     op.drop_table('idempotency_keys')
     # ### end Alembic commands ###

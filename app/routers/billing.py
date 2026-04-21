@@ -1,128 +1,111 @@
-"""
-Billing Router — Week 5
-
-Endpoints:
-  POST /billing/generate         — Admin: trigger statement generation
-  GET  /cards/{card_id}/statements  — List statements (handled in statements.py)
-  POST /cards/{card_id}/payments    — Payment with RBI waterfall (enhanced in payments.py)
-"""
-import uuid
-from datetime import date
-
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional
+from uuid import UUID
 
-from app.api.deps import get_db
+from app.api.deps import get_async_db
 from app.core.rbac import require, AuthenticatedPrincipal
-from app.schemas.base import envelope_success
-from app.schemas.responses import BillingGenerateResponse, LateFeeResponse, FraudFlagListResponse
-from app.schemas.billing import (
-    BillingGenerateRequest,
-    StatementSummary,
-    StatementDetail,
-    PaymentCreateRequest,
-    PaymentResponse,
-    FraudFlagSummary,
+from app.schemas.engine_schemas import (
+    GenerateBillReq,
+    GenerateBillResp,
+    PaginatedBillResp,
+    BillDetailResp
 )
-from app.services.billing_service import BillingService
-from app.models.billing import FraudFlag
+from app.services.billing_engine import BillingEngine
 
 router = APIRouter(tags=["Billing"])
 
+from fastapi import APIRouter, Depends, Query, Path
 
-@router.post("/billing/generate", status_code=200, response_model=BillingGenerateResponse)
-def generate_billing_statements(
-    request: BillingGenerateRequest,
-    db: Session = Depends(get_db),
-    principal: AuthenticatedPrincipal = Depends(require("billing:generate")),
+@router.post(
+    "/credit-account/{credit_account_id}/bill/{cycle_end}",
+    response_model=GenerateBillResp,
+    status_code=201,
+    summary="Generate Bill",
+    description="""
+FUNCTIONALITY:
+Generates monthly Bill records for a specific credit account. Applies interest computationally if the previous billing statement was not successfully resolved in full. Resolves minimum due calculations simultaneously.
+
+ROLES THAT CAN ACCESS THE ENDPOINT:
+- ADMIN
+- SUPERADMIN
+
+MATH FORMULA:
+foreign_fee = amount × 0.03 (if applicable cross-border)
+new_charges = Σ CLEARED tx.amount + Σ CLEARED tx.foreign_fee
+daily_rate = APR / 365
+interest = prev_balance × daily_rate × days_in_cycle
+total_due = new_charges + interest + other_fees - credits
+min_due = max(25.00, 0.02 × total_due) + past_due_amount
+
+LOGIC AND NECESSITY OF THE ENDPOINT:
+Fundamental for the monthly financial accounting workflows ensuring correct statement compilation for user visibility. Enforces single generation per cycle ensuring no duplicate balance compounding occurs.
+"""
+)
+async def generate_bill(
+    credit_account_id: str,
+    cycle_end: str = Path(..., openapi_examples={"default": {"value": "2026-04-30"}}, description="YYYY-MM-DD"),
+    db: AsyncSession = Depends(get_async_db),
+    principal: AuthenticatedPrincipal = Depends(require("admin:all"))
 ):
-    """
-    Admin-only: Trigger statement generation for the specified billing cycle.
-
-    **What it does:**
-    Runs the billing engine across all active credit accounts. For each account,
-    it computes Average Daily Balance (ADB) interest, applies grace periods,
-    generates line-item statements, and sets payment due dates.
-
-    **Request Body (`BillingGenerateRequest`):**
-    - `cycle_date`: The cycle-end date to generate statements for
-    - `purchase_apr`: Annual purchase APR (default: 35.99%)
-    - `cash_advance_apr`: Annual cash advance APR (default: 41.99%)
-    - `late_fee`: Fixed late fee amount (default: ₹500.00)
-
-    **Roles:** `billing:generate` (Admin / Super Admin only)
-
-    **Response:** `{ statements_generated, cycle_date, details: [...] }`
-    """
-    results = BillingService.generate_statements(
-        db=db,
-        cycle_date=request.cycle_date,
-        purchase_apr=request.purchase_apr,
-        cash_advance_apr=request.cash_advance_apr,
-        generated_by=principal.user_id if hasattr(principal, 'user_id') else None,
-    )
-    return envelope_success({
-        "statements_generated": len(results),
-        "cycle_date": str(request.cycle_date),
-        "details": results,
-    })
+    result = await BillingEngine.generate_bill(db, credit_account_id, cycle_end)
+    return result
 
 
-@router.post("/billing/late-fees", status_code=200, response_model=LateFeeResponse)
-def apply_late_fees(
-    db: Session = Depends(get_db),
-    principal: AuthenticatedPrincipal = Depends(require("billing:generate")),
-):
-    """
-    Admin-only: Apply late fees to all overdue statements.
+@router.get(
+    "/cards/{card_id}/bills",
+    response_model=PaginatedBillResp,
+    status_code=200,
+    summary="List Bills",
+    description="""
+FUNCTIONALITY:
+Fetches historically generated bills strictly mapped to an associated card.
 
-    **What it does:**
-    Sweeps all existing statements that are past their `payment_due_date`
-    and have not been fully paid. Automatically charges the configured late fee
-    amount to each overdue account and updates statement status.
+ROLES THAT CAN ACCESS THE ENDPOINT:
+- USER (own card)
+- ADMIN
 
-    **Roles:** `billing:generate` (Admin / Super Admin only)
+MATH FORMULA: N/A
 
-    **Response:** `{ late_fees_applied, details: [...] }`
-    """
-    results = BillingService.apply_late_fees(db)
-    return envelope_success({
-        "late_fees_applied": len(results),
-        "details": results,
-    })
-
-
-@router.get("/cards/{card_id}/fraud-flags", response_model=FraudFlagListResponse)
-def list_fraud_flags(
-    card_id: uuid.UUID,
+LOGIC AND NECESSITY OF THE ENDPOINT:
+Provides standard bill fetching endpoints natively supporting pagination logic and limiting queries securely on indexed relationships.
+"""
+)
+async def list_bills(
+    card_id: str,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db),
-    principal: AuthenticatedPrincipal = Depends(require("transaction:read")),
+    limit: int = Query(10, ge=1, le=50),
+    status: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_async_db),
+    principal: AuthenticatedPrincipal = Depends(require("billing:read"))
 ):
-    """
-    List all fraud flags for a card.
+    result = await BillingEngine.list_bills(db, card_id, principal.user_id, page, limit, status)
+    return result
 
-    **What it does:**
-    Returns a paginated history of all fraud detection flags triggered by
-    transactions on this card. Each flag includes the rule that fired,
-    the action taken (e.g., BLOCK, FLAG), and the timestamp.
 
-    **Query Parameters:**
-    - `page` / `page_size`: Pagination controls
+@router.get(
+    "/bills/{bill_id}",
+    response_model=BillDetailResp,
+    status_code=200,
+    summary="Get Bill Detail",
+    description="""
+FUNCTIONALITY:
+Fully unpacks a generated Bill surfacing raw transaction line items and corresponding payments matched during the previous resolution block. 
 
-    **Roles:** `transaction:read` (User / Admin)
+ROLES THAT CAN ACCESS THE ENDPOINT:
+- USER
+- ADMIN
 
-    **Response:** `{ data: [FraudFlagSummary], meta: { total, page, page_size } }`
-    """
-    query = db.query(FraudFlag).filter(FraudFlag.card_id == card_id)
-    total = query.count()
-    flags = query.order_by(FraudFlag.flagged_at.desc()).offset(
-        (page - 1) * page_size
-    ).limit(page_size).all()
+MATH FORMULA: N/A
 
-    data = [FraudFlagSummary.model_validate(f).model_dump(mode="json") for f in flags]
-    return envelope_success({
-        "data": data,
-        "meta": {"total": total, "page": page, "page_size": page_size},
-    })
+LOGIC AND NECESSITY OF THE ENDPOINT:
+Gives full detailed line-by-line granular verification so users have deep insights on their historical spending without requiring arbitrary table scans globally.
+"""
+)
+async def get_bill_detail(
+    bill_id: UUID,
+    db: AsyncSession = Depends(get_async_db),
+    principal: AuthenticatedPrincipal = Depends(require("billing:read"))
+):
+    result = await BillingEngine.get_bill_detail(db, str(bill_id), principal.user_id)
+    return result

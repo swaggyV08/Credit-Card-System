@@ -7,11 +7,10 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional, TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from app.models.transactions.disputes import Dispute
+from app.models.transactions.disputes import Dispute
 
 from sqlalchemy import (
-    String, Numeric, Boolean, DateTime, Text, ForeignKey, Index, JSON
+    String, Numeric, Boolean, DateTime, Text, ForeignKey, Index, JSON, Column
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -57,7 +56,11 @@ class Transaction(Base):
     merchant_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     merchant_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     merchant_category_code: Mapped[str | None] = mapped_column(String(4), nullable=True)
-    merchant_country: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    merchant_country = Column(String(2), nullable=False)
+    
+    # ── Foreign Transaction Fields ──
+    is_foreign = Column(Boolean, default=False)
+    foreign_fee = Column(Numeric(15, 2), default=0.0)
 
     # Authorization
     auth_code: Mapped[str | None] = mapped_column(String(8), unique=True, nullable=True, index=True)
@@ -182,3 +185,51 @@ class TransactionAuditLog(Base):
 
     def __repr__(self) -> str:
         return f"<TransactionAuditLog {self.entity_type}:{self.entity_id} action={self.action}>"
+
+
+# =====================================================
+# IDEMPOTENCY LOG TABLE (24-HOUR WINDOW)
+# =====================================================
+class IdempotencyLog(Base):
+    __tablename__ = "idempotency_log"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=_new_uuid
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    transaction_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("transactions.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    response_body: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    __table_args__ = (
+        Index("ix_idemp_key_created", "idempotency_key", "created_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<IdempotencyLog key={self.idempotency_key[:12]}... txn={self.transaction_id}>"
+
+
+# =====================================================
+# CARD VELOCITY TABLE (COUNT-BASED WINDOWS)
+# =====================================================
+class CardVelocity(Base):
+    __tablename__ = "card_velocity"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=_new_uuid
+    )
+    card_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("card.id"), nullable=False, index=True
+    )
+    window: Mapped[str] = mapped_column(String(10), nullable=False)  # "1m", "1h", "1d"
+    count: Mapped[int] = mapped_column(default=0)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("ix_velocity_card_window", "card_id", "window"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<CardVelocity card={self.card_id} window={self.window} count={self.count}>"

@@ -2,12 +2,14 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 from typing import Optional, Dict, Any, List
 import random
+from decimal import Decimal
 from datetime import datetime, timezone, timedelta, date
 
 
 from app.models.enums import (
     ApplicationStatus, ApplicationStage, AccountStatus, CardStatus, CardType,
-    AMLRiskCategory, InternalRiskRating, AutoPayType, EmploymentType, Country
+    AMLRiskCategory, InternalRiskRating, AutoPayType, EmploymentType, Country,
+    CCMAccountStatus, CCMAccountRiskFlag
 )
 from app.admin.models.card_issuance import CreditCardApplication, CreditAccount, Card, CardActivationOTP
 from app.admin.models.credit_product import CreditProductInformation
@@ -21,6 +23,7 @@ from app.models.audit import AuditLog
 from app.core.security import hash_value
 from app.core.otp import generate_otp, hash_otp, verify_otp, get_expiry_time
 from app.core.app_error import AppError
+from app.models.card_management import CCMCreditAccount, CCMCreditCard
 from app.admin.schemas.card_issuance import (
     AdminKYCReviewRequest, CreditAccountManualConfig, IssueCardRequest, CardActivationRequest, SetPinRequest
 )
@@ -211,13 +214,14 @@ class CardIssuanceService:
 
         if app.application_status == ApplicationStatus.APPROVED:
             return {
-                "application_id": app.id,
+                "application_id": str(app.id),
                 "application_status": "APPROVED",
                 "message": "Application automatically evaluated and APPROVED. Ready for manual configuration."
             }
 
 
         return {
+            "application_id": str(app.id),
             "application_status": "REJECTED",
             "rejection_reason": app.rejection_reason,
             "message": "Application automatically evaluated and REJECTED."
@@ -237,10 +241,11 @@ class CardIssuanceService:
                     if account:
                         cif_profile = db.query(CustomerProfile).filter(CustomerProfile.user_id == app.user_id).first()
                         return {
-                            "credit_account_id": account.id,
+                            "credit_account_id": str(account.id),
+                            "application_id": str(app.id),
                             "application_status": "APPROVED",
                             "account_details": {
-                                "application_id": app.id,
+                                "application_id": str(app.id),
                                 "user_id": str(app.user_id),
                                 "credit_product_id": account.credit_product_id,
                                 "card_product_id": account.card_product_id,
@@ -256,6 +261,7 @@ class CardIssuanceService:
                             "message": "Application has already been verified as APPROVED"
                         }
                 return {
+                    "application_id": str(app.id),
                     "application_status": "REJECTED",
                     "rejection_reason": app.rejection_reason,
                     "message": "Application has already been verified as REJECTED"
@@ -357,10 +363,11 @@ class CardIssuanceService:
             # Map account to response dict with extra fields
             cif_profile = db.query(CustomerProfile).filter(CustomerProfile.user_id == app.user_id).first()
             return {
-                "credit_account_id": account.id,
+                "credit_account_id": str(account.id),
+                "application_id": str(app.id),
                 "application_status": "APPROVED",
                 "account_details": {
-                    "application_id": app.id,
+                    "application_id": str(app.id),
                     "user_id": str(app.user_id),
                     "credit_product_id": account.credit_product_id,
                     "card_product_id": account.card_product_id,
@@ -377,6 +384,7 @@ class CardIssuanceService:
             }
         
         return {
+            "application_id": str(app.id),
             "application_status": "REJECTED",
             "rejection_reason": app.rejection_reason,
             "message": "Application REJECTED successfully"
@@ -388,12 +396,27 @@ class CardIssuanceService:
         if not app:
             raise AppError(code="NOT_FOUND", message="Application not found", http_status=404)
         
-        if app.application_status != ApplicationStatus.APPROVED:
-            raise AppError(code="INVALID_STATE", message="Application must be in APPROVED state for configuration", http_status=400)
+        if config.application_status == "Reject":
+            app.application_status = ApplicationStatus.REJECTED
+            app.rejection_reason = "Manually rejected by admin during configuration"
+            db.commit()
+            return None
+            
+        app.application_status = ApplicationStatus.APPROVED
             
         existing_acc = db.query(CreditAccount).filter(CreditAccount.application_id == app.id).first()
         if existing_acc:
             return existing_acc
+        
+        # Derive defaults from the linked credit product
+        from app.admin.models.credit_product import CreditProductLimits
+        product_limits = db.query(CreditProductLimits).filter(
+            CreditProductLimits.credit_product_id == app.credit_product_id
+        ).first()
+        
+        default_credit_limit = product_limits.min_credit_limit if product_limits else Decimal("100000.000")
+        default_cash_advance = Decimal("0.000")
+        default_billing_cycle = app.preferred_billing_cycle or "CYCLE_15"
             
         account = CreditAccount(
             user_id=app.user_id,
@@ -402,23 +425,38 @@ class CardIssuanceService:
             application_id=app.id,
             account_currency=app.card_product.default_card_currency if app.card_product else "INR",
             
-            credit_limit=config.credit_limit,
-            available_limit=config.credit_limit,
-            cash_advance_limit=config.cash_advance_limit,
+            credit_limit=default_credit_limit,
+            available_limit=default_credit_limit,
+            cash_advance_limit=default_cash_advance,
             outstanding_amount=0.0,
             
-            billing_cycle_id=config.billing_cycle_id,
+            billing_cycle_id=default_billing_cycle,
             
-            overlimit_allowed=config.overlimit_allowed,
-            overlimit_percentage=config.overlimit_percentage,
+            overlimit_allowed=False,
+            overlimit_percentage=Decimal("0.0"),
             
-            autopay_enabled=config.autopay_enabled,
-            autopay_type=config.autopay_type,
+            autopay_enabled=False,
+            autopay_type=None,
             
             created_by=admin_id,
             approved_by=admin_id
         )
         db.add(account)
+        
+        # Mirror to Core Card Management module
+        ccm_account = CCMCreditAccount(
+            id=account.id,
+            user_id=account.user_id,
+            credit_limit=account.credit_limit,
+            available_credit=account.available_limit,
+            outstanding_balance=account.outstanding_amount,
+            cash_limit=account.cash_advance_limit,
+            billing_cycle_day=15,
+            payment_due_days=20,
+            status=CCMAccountStatus.ACTIVE,
+            risk_flag=CCMAccountRiskFlag.NONE,
+        )
+        db.add(ccm_account)
         
         # Update application status
         app.application_status = ApplicationStatus.ACCOUNT_CREATED
@@ -428,7 +466,7 @@ class CardIssuanceService:
             actor_type="ADMIN",
             actor_id=admin_id,
             resource_id=account.id,
-            previous_state={"status": ApplicationStatus.PENDING.value},
+            previous_state={"status": ApplicationStatus.APPROVED.value},
             new_state={"status": ApplicationStatus.ACCOUNT_CREATED.value, "account_id": str(account.id)}
         )
         db.add(audit_log)
@@ -495,6 +533,25 @@ class CardIssuanceService:
             atm_enabled=True
         )
         db.add(card)
+        
+        # Mirror to Core Card Management module
+        from app.models.enums import CardNetwork, CardVariant, CCMCardStatus
+        ccm_card = CCMCreditCard(
+            id=card.id,
+            user_id=account.user_id,
+            card_number=str(uuid.uuid4()).replace("-", "")[:16],
+            card_network=CardNetwork.VISA,
+            card_variant=CardVariant.PLATINUM,
+            expiry_date=card.expiry_date,
+            cvv_hash=card.cvv_encrypted,
+            status=CCMCardStatus.INACTIVE
+        )
+        db.add(ccm_card)
+        
+        # Link CCM card to CCM Account
+        ccm_account = db.query(CCMCreditAccount).filter(CCMCreditAccount.id == account.id).first()
+        if ccm_account:
+            ccm_account.card_id = ccm_card.id
         
         audit_log = AuditLog(
             action_type="CARD_ISSUED",

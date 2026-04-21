@@ -1,7 +1,7 @@
 from typing import List, Optional, Any
 from pydantic import BaseModel, Field, condecimal, ConfigDict, field_validator, model_validator
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, date
 from decimal import Decimal
 from app.models.enums import (
     ProductCategory, ProductStatus, InterestType, InterestCalculationMethod,
@@ -79,7 +79,6 @@ class CreditProductCreate(BaseModel):
     fees: CreditProductFeesCreate
     eligibility_rules: CreditProductEligibilityRulesCreate
     compliance_metadata: CreditProductComplianceMetadataCreate
-    accounting_mapping: CreditProductAccountingMappingCreate
     auto_renewal_allowed: bool = True
     cooling_period_days: int = 90
 
@@ -133,32 +132,23 @@ class CreditProductResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class CreditProductCreateResponse(BaseModel):
-    product_id: UUID = Field(validation_alias="id")
+    id: UUID
     product_code: str
     product_name: str
+    product_category: ProductCategory
+    status: ProductStatus
     model_config = ConfigDict(from_attributes=True)
 
-class DateInput(BaseModel):
-    day: int = Field(..., ge=1, le=31)
-    month: int = Field(..., ge=1, le=12)
-    year: int = Field(..., ge=2024)
-
-    @model_validator(mode='after')
-    def validate_future_date(self) -> 'DateInput':
-        from datetime import date
-        try:
-            input_date = date(self.year, self.month, self.day)
-            if input_date < date.today():
-                raise ValueError("The provided date must be today or in the future.")
-        except ValueError as e:
-            if "provided date" in str(e):
-                raise
-            raise ValueError("Invalid date provided.")
-        return self
-
 class CreditProductApprovalRequest(BaseModel):
-    effective_to: Optional[DateInput] = None
+    effective_to: Optional[date] = Field(None, description="ISO 8601 date, e.g. '2027-12-31'", json_schema_extra={"example": "2027-12-31"})
     reject_reason: Optional[str] = None
+
+    @field_validator("effective_to")
+    @classmethod
+    def validate_future_date(cls, v):
+        if v is not None and v < date.today():
+            raise ValueError("Effective date must be today or in the future.")
+        return v
 
 class CreditProductStatusUpdateResponse(BaseModel):
     message: str
@@ -173,4 +163,4 @@ class CreditProductSummaryResponse(BaseModel):
     product_code: str
     product_name: str
     status: ProductStatus
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)

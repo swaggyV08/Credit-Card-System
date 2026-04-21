@@ -133,12 +133,12 @@ def test_transaction_deducts_credit(client, db_session, test_user):
         "expiry_date": issue_resp["expiry_date"]
     })
     
-    charge_resp = client.post("/transactions/charge", json={
-        "card_id": card_id,
+    charge_resp = client.post(f"/v1/cards/{card_id}/transactions", json={
         "amount": 1000.0,
-        "merchant_name": "Test Store",
-        "geo_location": "US, NY"
-    })
+        "merchant": "Test Store",
+        "category": "PURCHASE",
+        "merchant_country": "US"
+    }, headers={"Idempotency-Key": str(uuid.uuid4())})
     assert charge_resp.status_code == 201
     
     card_details = client.get(f"/cards/{card_id}").json()
@@ -155,16 +155,16 @@ def test_transaction_reversal(client, db_session, test_user):
         "expiry_date": issue_resp["expiry_date"]
     })
     
-    charge_resp = client.post("/transactions/charge", json={
-        "card_id": card_id,
+    charge_resp = client.post(f"/v1/cards/{card_id}/transactions", json={
         "amount": 2500.0,
-        "merchant_name": "Test Store 2",
-        "geo_location": "US, CA"
-    }).json()
+        "merchant": "Test Store 2",
+        "category": "PURCHASE",
+        "merchant_country": "US"
+    }, headers={"Idempotency-Key": str(uuid.uuid4())}).json()
     
     tx_id = charge_resp["id"]
     
-    rev_resp = client.post("/transactions/reverse", json={"transaction_id": tx_id})
+    rev_resp = client.post(f"/v1/cards/{card_id}/transactions/{tx_id}/reverse", json={"reason": "Test reversal"})
     assert rev_resp.status_code == 200
     
     card_details = client.get(f"/cards/{card_id}").json()
@@ -201,19 +201,19 @@ def test_fraud_block(client, db_session, test_user):
         "expiry_date": issue_resp["expiry_date"]
     })
     
-    client.post("/transactions/charge", json={
-        "card_id": card_id,
+    client.post(f"/v1/cards/{card_id}/transactions", json={
         "amount": 500.0,
-        "merchant_name": "Store India",
-        "geo_location": "India, Mumbai"
-    })
+        "merchant": "Store India",
+        "category": "PURCHASE",
+        "merchant_country": "IN"
+    }, headers={"Idempotency-Key": str(uuid.uuid4())})
     
-    charge2 = client.post("/transactions/charge", json={
-        "card_id": card_id,
+    charge2 = client.post(f"/v1/cards/{card_id}/transactions", json={
         "amount": 500.0,
-        "merchant_name": "Store US",
-        "geo_location": "US, CA"
-    })
+        "merchant": "Store US",
+        "category": "PURCHASE",
+        "merchant_country": "US"
+    }, headers={"Idempotency-Key": str(uuid.uuid4())})
     
     assert charge2.status_code == 403
     assert "fraud" in charge2.json()["detail"].lower()

@@ -1,12 +1,13 @@
-from fastapi import APIRouter, Depends, Query, Path
+from fastapi import APIRouter, Depends, Query, Path, Header
 from sqlalchemy.orm import Session
 from uuid import UUID
-from typing import Optional
+from typing import Optional, Literal
 from datetime import datetime, timedelta, timezone
 
 from app.api import deps
 from app.core.rbac import require, AuthenticatedPrincipal
-from app.schemas.base import envelope_success
+from app.schemas.base import envelope_success, build_pagination, ResponseEnvelope
+from typing import Union
 from app.schemas.responses import CreditAccountListResponse, CreditAccountUpdateResponse
 from app.admin.schemas.credit_account_admin import CreditAccountDetail
 from app.admin.schemas.unified_updates import AdminAccountCommand, UnifiedAccountUpdateRequest
@@ -16,8 +17,89 @@ from app.core.app_error import AppError
 
 router = APIRouter(prefix="/credit-accounts", tags=["Admin: Credit Accounts"])
 
-@router.get("/", response_model=CreditAccountListResponse)
-def list_accounts(
+@router.get(
+    "/",
+    summary="Get Credit Accounts",
+    description="""
+**Unified endpoint to retrieve credit accounts.**
+
+### Commands
+- `command=all` — Returns a paginated list of credit accounts with optional filters.
+- `command=by_id` — Returns full details of a single credit account (requires `credit_account_id` header).
+
+### Query Parameters
+- `status`: `PENDING` | `ACTIVE` | `SUSPENDED` | `FROZEN` | `DELINQUENT` | `CLOSED` | `CHARGED_OFF`
+- `product_code`: Filter by linked credit product code
+- `page`, `limit`: Pagination controls
+
+### Example Success Response (command=all)
+```json
+{
+  "status": "success",
+  "data": {
+    "page": 1,
+    "limit": 20,
+    "total_records": 1,
+    "accounts": [
+      {
+        "credit_account_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "readable_id": "ACC-000001",
+        "user_id": "ZNBNQ000001",
+        "credit_limit": "500000.00",
+        "available_credit": "450000.00",
+        "outstanding_balance": "50000.00",
+        "status": "ACTIVE",
+        "billing_cycle_day": 15,
+        "risk_flag": "NONE"
+      }
+    ]
+  },
+  "meta": {
+    "request_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "timestamp": "2026-04-08T10:30:00.000000+00:00",
+    "api_version": "1.0.0"
+  },
+  "errors": []
+}
+```
+
+### Example Success Response (command=by_id)
+```json
+{
+  "status": "success",
+  "data": {
+    "credit_account_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "readable_id": "ACC-000001",
+    "user_id": "ZNBNQ000001",
+    "credit_limit": "500000.00",
+    "available_credit": "450000.00",
+    "outstanding_balance": "50000.00",
+    "cash_advance_limit": "100000.00",
+    "status": "ACTIVE",
+    "billing_cycle_day": 15,
+    "payment_due_days": 20,
+    "purchase_apr": "36.00",
+    "cash_apr": "42.00",
+    "penalty_apr": "48.00",
+    "overlimit_enabled": false,
+    "overlimit_buffer": "0.00",
+    "overlimit_fee": "0.00",
+    "risk_flag": "NONE",
+    "version": 1,
+    "opened_at": "2026-04-08T10:30:00+00:00"
+  },
+  "meta": { ... },
+  "errors": []
+}
+```
+
+**Roles:** `credit_account:list`, `credit_account:detail` (Admin / Manager / SuperAdmin)
+""",
+    response_model=Union[ResponseEnvelope[CreditAccountDetail], CreditAccountListResponse]
+)
+def get_credit_accounts(
+    command: Literal["all", "by_id"] = Query(..., description="Action to perform"),
+    credit_account_id: Optional[UUID] = Header(None, description="Required for command=by_id"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     status: Optional[CCMAccountStatus] = None,
@@ -25,55 +107,77 @@ def list_accounts(
     db: Session = Depends(deps.get_db),
     principal: AuthenticatedPrincipal = Depends(require("credit_account:list"))
 ):
-    """
-    Retrieves a paginated list of credit accounts with optional filters.
+    if command == "by_id":
+        if not credit_account_id:
+            raise AppError(code="MISSING_ACCOUNT_ID", message="credit_account_id header is required for command=by_id", http_status=422)
+        
+        acc = CreditAccountAdminService.get_account(db, credit_account_id)
+        return envelope_success(acc.model_dump(mode='json') if hasattr(acc, 'model_dump') else acc)
 
-    **What it does:**
-    Returns all credit accounts in the system. Supports filtering by account
-    lifecycle status and product code for operational dashboards and audits.
+    elif command == "all":
+        accounts, total = CreditAccountAdminService.list_accounts(
+            db, page=page, limit=limit, status=status, product_code=product_code
+        )
+        accounts_dump = [a.model_dump(mode='json') if hasattr(a, 'model_dump') else a for a in accounts]
+        return envelope_success({
+            "accounts": accounts_dump,
+            "pagination": build_pagination(total, page, limit)
+        })
 
-    **Query Parameters:**
-    - `status`: `PENDING` | `ACTIVE` | `SUSPENDED` | `FROZEN` | `DELINQUENT` | `CLOSED` | `CHARGED_OFF`
-    - `product_code`: Filter by the linked credit product code string
-    - `page` / `limit`: Pagination controls
+@router.put(
+    "/{credit_account_id}",
+    summary="Update Credit Account Unified",
+    description="""
+**Unified endpoint for credit account updates via command dispatch.**
 
-    **Roles:** `credit_account:list` (Admin / Super Admin only)
+### Commands (query parameter)
+- `limit` — Change credit limit (requires `limits` body)
+- `status` — Transition account status (requires `status` body)
+- `freeze` — Freeze or unfreeze account (requires `freeze` body)
+- `billing_cycle` — Update billing cycle day and grace period (requires `billing_cycle` body)
+- `risk` — Set risk flag (requires `risk` body)
 
-    **Response:** `{ page, limit, total_records, accounts: [...] }`
-    """
-    accounts, total = CreditAccountAdminService.list_accounts(
-        db, page=page, limit=limit, status=status, product_code=product_code
-    )
-    accounts_dump = [a.model_dump(mode='json') if hasattr(a, 'model_dump') else a for a in accounts]
-    return envelope_success({
-        "page": page,
-        "limit": limit,
-        "total_records": total,
-        "accounts": accounts_dump
-    })
+### Request Body
+Only provide the field that matches the command. Extra fields will be rejected.
+```json
+{
+  "limits": {
+    "new_credit_limit": "0000000000.000",
+    "reason_code": "INCOME_REVIEW",
+    "notes": "string",
+    "effective_from": "2026-06-01"
+  },
+  "status": {
+    "status": "PENDING",
+    "reason_code": "KYC_REVIEW",
+    "notes": "string"
+  },
+  "freeze": {
+    "freeze": true,
+    "reason_code": "KYC_REVIEW",
+    "notes": "string"
+  },
+  "billing_cycle": {
+    "billing_cycle_day": 1,
+    "grace_period": 1
+  },
+  "risk": {
+    "risk_flag": "NONE",
+    "reason": "string"
+  }
+}
+```
 
-@router.get("/{credit_account_id}")
-def get_account_details(
-    credit_account_id: UUID = Path(...),
-    db: Session = Depends(deps.get_db),
-    principal: AuthenticatedPrincipal = Depends(require("credit_account:detail"))
-):
-    """
-    Retrieves full details of a single credit account.
+### Enums
+- `CCMAccountStatus`: `PENDING` | `ACTIVE` | `SUSPENDED` | `FROZEN` | `DELINQUENT` | `CLOSED` | `CHARGED_OFF`
+- `CCMAccountRiskFlag`: `NONE` | `LOW_RISK` | `MEDIUM_RISK` | `HIGH_RISK` | `CRITICAL`
+- `CCMLimitReasonCode`: `INCOME_REVIEW` | `RISK_ADJUSTMENT` | `PROMOTIONAL` | `MANUAL_OVERRIDE`
+- `CCMStatusReasonCode`: `KYC_REVIEW` | `FRAUD_ALERT` | `DELINQUENCY` | `CUSTOMER_REQUEST` | `COMPLIANCE` | `ADMIN_ACTION`
 
-    **What it does:**
-    Returns the complete financial snapshot of a credit account including
-    credit limit, available credit, outstanding balance, APR configuration,
-    billing cycle, risk flags, overlimit settings, and version number.
-
-    **Roles:** `credit_account:detail` (Admin / Super Admin only)
-
-    **Response:** `CreditAccountDetail` schema with all financial fields.
-    """
-    acc = CreditAccountAdminService.get_account(db, credit_account_id)
-    return envelope_success(acc.model_dump(mode='json') if hasattr(acc, 'model_dump') else acc)
-
-@router.put("/{credit_account_id}", response_model=CreditAccountUpdateResponse)
+**Roles:** `credit_account:update` (Admin / SuperAdmin only)
+""",
+    response_model=CreditAccountUpdateResponse
+)
 def update_credit_account_unified(
     req: UnifiedAccountUpdateRequest,
     credit_account_id: UUID = Path(...),
@@ -81,42 +185,21 @@ def update_credit_account_unified(
     db: Session = Depends(deps.get_db),
     principal: AuthenticatedPrincipal = Depends(require("credit_account:update"))
 ):
-    """
-    Unified endpoint for credit account updates via command dispatch.
+    # Block removed commands
+    if command in (AdminAccountCommand.INTEREST, AdminAccountCommand.OVERLIMIT):
+        raise AppError(
+            code="INVALID_COMMAND",
+            message=f"Command '{command.value}' is not supported. Allowed: limit, status, freeze, billing_cycle, risk",
+            http_status=400
+        )
 
-    **What it does:**
-    A single PATCH endpoint that accepts a `command` query parameter to determine
-    which aspect of the credit account to modify. Only the field matching the
-    command is accepted in the request body — extra fields will be rejected.
-
-    **Query Parameter `command` (enum `AdminAccountCommand`):**
-    - `limit` — Change credit limit (requires `limits` body)
-    - `status` — Transition account status (requires `status` body)
-    - `freeze` — Freeze or unfreeze account (requires `freeze` body)
-    - `billing_cycle` — Update billing cycle day and grace period (requires `billing_cycle` body)
-    - `risk` — Set risk flag (requires `risk` body)
-    - `interest` — Modify APR rates (requires `interest` body)
-    - `overlimit` — Configure overlimit buffer and fees (requires `overlimit` body)
-
-    **Enums used in sub-request bodies:**
-    - `CCMAccountStatus`: `PENDING` | `ACTIVE` | `SUSPENDED` | `FROZEN` | `DELINQUENT` | `CLOSED` | `CHARGED_OFF`
-    - `CCMAccountRiskFlag`: `NONE` | `LOW_RISK` | `MEDIUM_RISK` | `HIGH_RISK` | `CRITICAL`
-    - `CCMLimitReasonCode`: `INCOME_REVIEW` | `RISK_ADJUSTMENT` | `PROMOTIONAL` | `MANUAL_OVERRIDE`
-    - `CCMStatusReasonCode`: `KYC_REVIEW` | `FRAUD_ALERT` | `DELINQUENCY` | `CUSTOMER_REQUEST` | `COMPLIANCE` | `ADMIN_ACTION`
-
-    **Roles:** `credit_account:update` (Admin / Super Admin only)
-
-    **Response:** Varies by command — returns old and new values for the modified field.
-    """
-    # 1. Strict Validation: Ensure ONLY the field matching the command is present
+    # Strict Validation: Ensure ONLY the field matching the command is present
     fields = {
         AdminAccountCommand.LIMIT: "limits",
         AdminAccountCommand.STATUS: "status",
         AdminAccountCommand.FREEZE: "freeze",
         AdminAccountCommand.BILLING_CYCLE: "billing_cycle",
         AdminAccountCommand.RISK: "risk",
-        AdminAccountCommand.INTEREST: "interest",
-        AdminAccountCommand.OVERLIMIT: "overlimit"
     }
     
     active_field = fields.get(command)
@@ -137,7 +220,6 @@ def update_credit_account_unified(
             http_status=422
         )
 
-    # 2. Dispatch to specific service methods and return appropriate response
     if command == AdminAccountCommand.LIMIT:
         account, old_limit = CreditAccountAdminService.update_limit(db, credit_account_id, req.limits, principal.user_id)
         result = {
@@ -186,30 +268,6 @@ def update_credit_account_unified(
             "old_risk_flag": old_risk,
             "new_risk_flag": account.risk_flag,
             "updated_at": datetime.now(timezone.utc).isoformat()
-        }
-        
-    elif command == AdminAccountCommand.INTEREST:
-        account, old_p, old_c, old_pen = CreditAccountAdminService.update_interest(db, credit_account_id, req.interest)
-        result = {
-            "credit_account_id": str(account.id),
-            "old_purchase_apr": str(old_p),
-            "old_cash_apr": str(old_c),
-            "old_penalty_apr": str(old_pen),
-            "purchase_apr": str(account.purchase_apr),
-            "cash_apr": str(account.cash_apr),
-            "penalty_apr": str(account.penalty_apr)
-        }
-        
-    elif command == AdminAccountCommand.OVERLIMIT:
-        account, old_en, old_buf, old_fee = CreditAccountAdminService.update_overlimit(db, credit_account_id, req.overlimit)
-        result = {
-            "credit_account_id": str(account.id),
-            "old_overlimit_enabled": old_en,
-            "old_overlimit_buffer": str(old_buf),
-            "old_overlimit_fee": str(old_fee),
-            "overlimit_enabled": account.overlimit_enabled,
-            "overlimit_buffer": str(account.overlimit_buffer),
-            "overlimit_fee": str(account.overlimit_fee)
         }
     else:
         raise AppError(code="INVALID_COMMAND", message="Invalid command", http_status=400)

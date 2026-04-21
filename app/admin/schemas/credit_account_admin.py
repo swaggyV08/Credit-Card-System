@@ -1,6 +1,6 @@
 from typing import List, Optional
 from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator, condecimal, computed_field
-from datetime import datetime
+from datetime import datetime, date
 from decimal import Decimal
 from uuid import UUID
 from app.models.enums import (
@@ -25,29 +25,18 @@ def validate_currency_10_3(v: Decimal) -> Decimal:
 
 # --- Request Schemas ---
 
-class EffectiveFromDate(BaseModel):
-    Year: int = Field(..., ge=2024)
-    Month: int = Field(..., ge=1, le=12)
-    Date: int = Field(..., ge=1, le=31, alias="Date")
-
-    @model_validator(mode='after')
-    def validate_future_date(self) -> 'EffectiveFromDate':
-        from datetime import date
-        try:
-            input_date = date(self.Year, self.Month, self.Date)
-            if input_date < date.today():
-                raise ValueError("Effective date must be today or in the future.")
-        except ValueError as e:
-            if "Effective date" in str(e):
-                raise
-            raise ValueError("Invalid date provided.")
-        return self
-
 class CreditLimitUpdateRequest(BaseModel):
     new_credit_limit: condecimal(max_digits=13, decimal_places=3, gt=0) = Field(..., json_schema_extra={"example": "0000000000.000"})
     reason_code: CCMLimitReasonCode
     notes: Optional[str] = None
-    effective_from: EffectiveFromDate
+    effective_from: date = Field(..., description="ISO 8601 date, e.g. '2026-06-01'", json_schema_extra={"example": "2026-06-01"})
+
+    @field_validator("effective_from")
+    @classmethod
+    def validate_future_date(cls, v):
+        if v < date.today():
+            raise ValueError("Effective date must be today or in the future.")
+        return v
 
     @field_validator("new_credit_limit")
     @classmethod

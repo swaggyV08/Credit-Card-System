@@ -23,7 +23,7 @@ from app.core.app_error import AppError
 
 class CreditAccountAdminService:
     @staticmethod
-    def get_account(db: Session, account_id: UUID) -> CCMCreditAccount:
+    def _get_db_account(db: Session, account_id: UUID) -> CCMCreditAccount:
         account = db.query(CCMCreditAccount).filter(CCMCreditAccount.id == account_id).first()
         if not account:
             raise AppError(
@@ -31,6 +31,12 @@ class CreditAccountAdminService:
                 message="Credit account not found",
                 http_status=404
             )
+        return account
+
+    @staticmethod
+    def get_account(db: Session, account_id: UUID) -> CCMCreditAccount:
+        account = CreditAccountAdminService._get_db_account(db, account_id)
+
         # Populate extra fields for response schema
         response_dict = CreditAccountDetail.model_validate(account).model_dump()
         response_dict["card_count"] = account.card_count
@@ -90,16 +96,16 @@ class CreditAccountAdminService:
 
     @staticmethod
     def update_limit(db: Session, account_id: UUID, req: CreditLimitUpdateRequest, admin_id: UUID):
-        account = CreditAccountAdminService.get_account(db, account_id)
+        account = CreditAccountAdminService._get_db_account(db, account_id)
         old_limit = account.credit_limit
         new_limit = req.new_credit_limit
         
         limit_diff = new_limit - old_limit
         
-        # Auto-generate effective_from using nested structure
+        # Convert ISO 8601 date to datetime at UTC midnight
         try:
             from datetime import timezone
-            effective_from = datetime(req.effective_from.Year, req.effective_from.Month, req.effective_from.Date, tzinfo=timezone.utc)
+            effective_from = datetime(req.effective_from.year, req.effective_from.month, req.effective_from.day, tzinfo=timezone.utc)
         except ValueError as e:
             raise AppError(
                 code="INVALID_DATE",
@@ -126,7 +132,7 @@ class CreditAccountAdminService:
 
     @staticmethod
     def update_status(db: Session, account_id: UUID, req: AccountStatusUpdateRequest):
-        account = CreditAccountAdminService.get_account(db, account_id)
+        account = CreditAccountAdminService._get_db_account(db, account_id)
         old_status = account.status
         new_status = req.status
         
@@ -164,7 +170,7 @@ class CreditAccountAdminService:
 
     @staticmethod
     def freeze(db: Session, account_id: UUID, req: AccountFreezeRequest):
-        account = CreditAccountAdminService.get_account(db, account_id)
+        account = CreditAccountAdminService._get_db_account(db, account_id)
         old_status = account.status
         
         if req.freeze:
@@ -186,7 +192,7 @@ class CreditAccountAdminService:
 
     @staticmethod
     def update_billing_cycle(db: Session, account_id: UUID, req: BillingCycleUpdateRequest):
-        account = CreditAccountAdminService.get_account(db, account_id)
+        account = CreditAccountAdminService._get_db_account(db, account_id)
         old_billing_cycle_day = account.billing_cycle_day
         old_payment_due_days = account.payment_due_days
         
@@ -198,7 +204,7 @@ class CreditAccountAdminService:
 
     @staticmethod
     def update_risk_flag(db: Session, account_id: UUID, req: RiskFlagUpdateRequest):
-        account = CreditAccountAdminService.get_account(db, account_id)
+        account = CreditAccountAdminService._get_db_account(db, account_id)
         old_risk_flag = account.risk_flag
         
         account.risk_flag = req.risk_flag
@@ -208,7 +214,7 @@ class CreditAccountAdminService:
 
     @staticmethod
     def update_interest(db: Session, account_id: UUID, req: InterestUpdateRequest):
-        account = CreditAccountAdminService.get_account(db, account_id)
+        account = CreditAccountAdminService._get_db_account(db, account_id)
         old_purchase_apr = account.purchase_apr
         old_cash_apr = account.cash_apr
         old_penalty_apr = account.penalty_apr
@@ -222,7 +228,7 @@ class CreditAccountAdminService:
 
     @staticmethod
     def update_overlimit(db: Session, account_id: UUID, req: OverlimitConfigRequest):
-        account = CreditAccountAdminService.get_account(db, account_id)
+        account = CreditAccountAdminService._get_db_account(db, account_id)
         old_overlimit_enabled = account.overlimit_enabled
         old_overlimit_buffer = account.overlimit_buffer
         old_overlimit_fee = account.overlimit_fee

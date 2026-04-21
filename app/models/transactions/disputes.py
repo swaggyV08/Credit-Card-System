@@ -49,12 +49,18 @@ class Dispute(Base):
         PGUUID(as_uuid=True), ForeignKey("provisional_credits.id"), nullable=True
     )
 
-    resolution: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    raised_by_user_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    decision: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     resolved_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    @property
+    def raised_at(self) -> datetime:
+        return self.created_at
 
     evidence: Mapped[list["DisputeEvidence"]] = relationship(back_populates="dispute", lazy="selectin")
 

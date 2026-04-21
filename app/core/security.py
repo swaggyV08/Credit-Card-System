@@ -18,6 +18,7 @@ deterministic SHA-256 HMAC. It does NOT need a salt because the input
 (document number / PIN) is already compared directly and the HMAC key
 (SECRET_KEY) keeps rainbow-table attacks infeasible.
 """
+import bcrypt
 import hashlib
 import hmac
 import os
@@ -36,52 +37,39 @@ _PREFIX     = "pbkdf2"
 
 def hash_value(value: str) -> str:
     """
-    Hash a password (or PIN) using PBKDF2-HMAC-SHA256 with a random salt.
-    Returns a self-describing string stored in the DB.
+    Hash a password using bcrypt with salt rounds >= 12.
     """
-    salt = os.urandom(_SALT_LEN)
-    dk = hashlib.pbkdf2_hmac(_ALGORITHM, value.encode("utf-8"), salt, _ITERATIONS)
-    encoded = base64.b64encode(salt + dk).decode("ascii")
-    return f"{_PREFIX}${_ALGORITHM}${_ITERATIONS}${encoded}"
+    salt = bcrypt.gensalt(rounds=12)
+    hashed = bcrypt.hashpw(value.encode("utf-8"), salt)
+    return hashed.decode("utf-8")
 
 
 def verify_value(value: str, stored_hash: str) -> bool:
     """
-    Verify a plaintext value against a stored PBKDF2 hash.
-
-    Returns False (not raises) for:
-      - Legacy bcrypt hashes (starts with $2b$ / $2a$) → user must reset password
-      - Malformed / unrecognised hash format
-      - Wrong password
+    Verify a plaintext value against a stored bcrypt hash.
+    Also handles legacy PBKDF2 hashes if they exist in the DB (optional but good for transition).
     """
     if not stored_hash:
         return False
-
-    # Gracefully handle legacy bcrypt hashes without crashing
-    if stored_hash.startswith(("$2b$", "$2a$", "$2y$")):
-        # Cannot verify bcrypt without the bcrypt library (removed from stack).
-        # Return False so callers surface an "invalid password" error cleanly.
-        return False
-
+    
+    # Check if it looks like a PBKDF2 hash from our previous system
+    if stored_hash.startswith("pbkdf2$"):
+        try:
+            prefix, algo, iters_str, encoded = stored_hash.split("$", 3)
+            raw = base64.b64decode(encoded.encode("ascii"))
+            iterations = int(iters_str)
+            salt = raw[:16] # _SALT_LEN was 16
+            stored_dk = raw[16:]
+            computed_dk = hashlib.pbkdf2_hmac(algo, value.encode("utf-8"), salt, iterations)
+            if hmac.compare_digest(stored_dk, computed_dk):
+                return True
+        except Exception:
+            pass
+            
     try:
-        prefix, algo, iters_str, encoded = stored_hash.split("$", 3)
-    except ValueError:
-        return False
-
-    if prefix != _PREFIX:
-        return False
-
-    try:
-        raw = base64.b64decode(encoded.encode("ascii"))
-        iterations = int(iters_str)
+        return bcrypt.checkpw(value.encode("utf-8"), stored_hash.encode("utf-8"))
     except Exception:
         return False
-
-    salt = raw[:_SALT_LEN]
-    stored_dk = raw[_SALT_LEN:]
-
-    computed_dk = hashlib.pbkdf2_hmac(algo, value.encode("utf-8"), salt, iterations)
-    return hmac.compare_digest(stored_dk, computed_dk)
 
 
 def hash_document(value: str, secret: str) -> str:

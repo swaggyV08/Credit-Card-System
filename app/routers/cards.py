@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from app.api.deps import get_db
 from app.core.rbac import require, AuthenticatedPrincipal
 from app.schemas.base import envelope_success
-from app.schemas.responses import CardIssueResponse, CardLifecycleResponse
+from app.schemas.responses import CardIssueResponse, CardLifecycleResponse, CardActivationResponse, CardDetailsResponse
 from app.schemas.card_management import (
     CCMCardIssueRequest, CCMCardActivationRequest,
     CCMCardBlockRequest, CCMCardUnblockRequest,
@@ -60,7 +60,7 @@ def issue_card_endpoint(
     except Exception as e:
         raise AppError(code="INTERNAL_ERROR", message=f"Failed to issue card: {str(e)}", http_status=500)
 
-@router.post("/{card_id}/activate")
+@router.post("/{card_id}/activate", response_model=CardActivationResponse)
 async def activate_card_dispatcher(
     card_id: uuid.UUID,
     body: CCMCardActivationRequest,
@@ -108,7 +108,7 @@ async def activate_card_dispatcher(
     except Exception as e:
         raise AppError(code="INTERNAL_ERROR", message=f"Activation failed: {str(e)}", http_status=500)
 
-@router.post("/{card_id}")
+@router.post("/{card_id}", response_model=CardLifecycleResponse)
 async def card_lifecycle_dispatcher(
     card_id: uuid.UUID,
     data: Union[
@@ -130,8 +130,8 @@ async def card_lifecycle_dispatcher(
     - `block` — Temporarily blocks the card. Body: `CCMCardBlockRequest` with `block_reason`.
       - `block_reason` enum: `SUSPICIOUS_ACTIVITY` | `GEO_MISMATCH` | `VELOCITY_CHECK` |
         `USER_REQUEST` | `FRAUD` | `LOST` | `STOLEN` | `TEMPORARY_BLOCK`
-    - `unblock_otp` — Initiates unblock by sending OTP. Body: `CCMCardUnblockRequest`.
-    - `unblock` — Confirms unblock with OTP. Body: `CCMCardUnblockRequest`.
+    - `unblock_ini` — Initiates unblocking process by generating a session token. Body: `CCMCardUnblockRequest`.
+    - `unblock` — Confirms unblock using the session token. Body: `CCMCardUnblockRequest`.
     - `replace` — Reissues the card (damaged/lost/upgrade). Body: `CCMCardReplaceRequest`.
       - `reissue_reason` enum: `DAMAGED` | `LOST` | `UPGRADE` | `EXPIRY`
     - `terminate` — Permanently closes the card. Body: `CCMCardTerminateRequest`.
@@ -152,7 +152,7 @@ async def card_lifecycle_dispatcher(
         if command == CCMCommand.BLOCK.value.lower():
             validated_data = CCMCardBlockRequest.model_validate(raw_data)
             result = CardManagementService.block_card(db, card_id, validated_data, actor=actor)
-        elif command == CCMCommand.UNBLOCK_OTP.value.lower():
+        elif command == CCMCommand.UNBLOCK_INI.value.lower():
             validated_data = CCMCardUnblockRequest.model_validate(raw_data)
             result = CardManagementService.initiate_unblock(db, card_id, validated_data, actor=actor)
         elif command == CCMCommand.UNBLOCK.value.lower():
@@ -183,7 +183,7 @@ async def card_lifecycle_dispatcher(
     except Exception as e:
         raise AppError(code="INTERNAL_ERROR", message=f"Command '{command}' failed: {str(e)}", http_status=500)
 
-@router.get("/{card_id}")
+@router.get("/{card_id}", response_model=CardDetailsResponse)
 def get_card_details(
     card_id: uuid.UUID, 
     db: Session = Depends(get_db),

@@ -217,6 +217,7 @@ class OTPPurpose(str, Enum):
     REGISTRATION = "REGISTRATION"
     PASSWORD_RESET = "PASSWORD_RESET"
     ACTIVATION = "ACTIVATION"
+    LOGIN = "LOGIN"
 
 
 class OTPCode(Base):
